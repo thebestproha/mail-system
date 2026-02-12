@@ -1,0 +1,13 @@
+[
+  {
+    "id": 9001,
+    "sender": "A",
+    "receiver": "B",
+    "content": "Integrity test [CORRUPTED]",
+    "status": "UNREAD",
+    "timestamp_sent": "2026-02-12 22:28:24",
+    "timestamp_read": null,
+    "checksum": "18a77fefc2436b0881b5afb05eb8db38",
+    "server_id": "S1"
+  }
+]

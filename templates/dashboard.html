@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mail System Dashboard</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 20px;
+      background: #f4f6f8;
+      color: #1f2937;
+    }
+
+    h1 {
+      margin-top: 0;
+      margin-bottom: 16px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+
+    .card {
+      background: #ffffff;
+      border: 1px solid #d1d5db;
+      border-radius: 10px;
+      padding: 14px;
+    }
+
+    .status-row,
+    .load-row,
+    .list-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 8px 0;
+      border-bottom: 1px solid #e5e7eb;
+    }
+
+    .status-row:last-child,
+    .load-row:last-child,
+    .list-row:last-child {
+      border-bottom: none;
+    }
+
+    .status-box {
+      color: #ffffff;
+      font-weight: bold;
+      padding: 4px 10px;
+      border-radius: 6px;
+      min-width: 60px;
+      text-align: center;
+    }
+
+    .up {
+      background: #16a34a;
+    }
+
+    .down {
+      background: #dc2626;
+    }
+
+    .controls {
+      background: #ffffff;
+      border: 1px solid #d1d5db;
+      border-radius: 10px;
+      padding: 14px;
+    }
+
+    .button-group {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-bottom: 12px;
+    }
+
+    button {
+      border: none;
+      border-radius: 6px;
+      padding: 8px 12px;
+      cursor: pointer;
+      color: #ffffff;
+      font-weight: 600;
+    }
+
+    .fail-btn {
+      background: #dc2626;
+    }
+
+    .restore-btn {
+      background: #16a34a;
+    }
+
+    #last-updated {
+      margin-top: 10px;
+      font-size: 14px;
+      color: #6b7280;
+    }
+
+    .logs-panel {
+      margin-top: 16px;
+      background: #ffffff;
+      border: 1px solid #d1d5db;
+      border-radius: 10px;
+      padding: 14px;
+    }
+
+    #logs-container {
+      max-height: 220px;
+      overflow-y: auto;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      padding: 10px;
+      background: #f9fafb;
+    }
+
+    .log-item {
+      padding: 6px 0;
+      border-bottom: 1px solid #e5e7eb;
+      font-size: 14px;
+    }
+
+    .log-item:last-child {
+      border-bottom: none;
+    }
+  </style>
+</head>
+<body>
+  <h1>Mini Multi-User Mail System Dashboard</h1>
+
+  <div class="grid">
+    <div class="card">
+      <h3>Server Status</h3>
+      <div id="server-status"></div>
+    </div>
+
+    <div class="card">
+      <h3>Server Load</h3>
+      <div id="server-load"></div>
+    </div>
+
+    <div class="card">
+      <h3>System Info</h3>
+      <div class="list-row"><span>Total Messages</span><strong id="total-messages">0</strong></div>
+      <div class="list-row"><span>Current Algorithm</span><strong id="algorithm">Round Robin</strong></div>
+      <div class="list-row"><span>Last Routed</span><strong id="last-routed">None</strong></div>
+      <div class="list-row"><span>Available Servers</span><strong id="available-servers">-</strong></div>
+      <div class="list-row"><span>Current Index</span><strong id="current-index">0</strong></div>
+    </div>
+  </div>
+
+  <div class="controls">
+    <h3>Failure Simulation Controls</h3>
+    <div id="buttons-container"></div>
+    <div id="last-updated">Last updated: -</div>
+  </div>
+
+  <div class="logs-panel">
+    <h3>Event Logs</h3>
+    <div id="logs-container"></div>
+  </div>
+
+  <script>
+    const API_BASE = "http://127.0.0.1:5000";
+
+    function createControlButtons() {
+      const container = document.getElementById("buttons-container");
+      container.innerHTML = "";
+
+      ["S1", "S2", "S3"].forEach((serverId) => {
+        const group = document.createElement("div");
+        group.className = "button-group";
+
+        const failButton = document.createElement("button");
+        failButton.className = "fail-btn";
+        failButton.textContent = `Fail ${serverId}`;
+        failButton.onclick = () => postAction(`/fail/${serverId}`);
+
+        const restoreButton = document.createElement("button");
+        restoreButton.className = "restore-btn";
+        restoreButton.textContent = `Restore ${serverId}`;
+        restoreButton.onclick = () => postAction(`/restore/${serverId}`);
+
+        group.appendChild(failButton);
+        group.appendChild(restoreButton);
+        container.appendChild(group);
+      });
+    }
+
+    async function postAction(path) {
+      try {
+        await fetch(`${API_BASE}${path}`, { method: "POST" });
+        await fetchDashboardData();
+      } catch (error) {
+        console.error("Action failed:", error);
+      }
+    }
+
+    function renderStatus(serverStatus) {
+      const container = document.getElementById("server-status");
+      container.innerHTML = "";
+
+      Object.entries(serverStatus).forEach(([serverId, status]) => {
+        const row = document.createElement("div");
+        row.className = "status-row";
+
+        const name = document.createElement("span");
+        name.textContent = serverId;
+
+        const badge = document.createElement("span");
+        badge.className = `status-box ${status === "UP" ? "up" : "down"}`;
+        badge.textContent = status;
+
+        row.appendChild(name);
+        row.appendChild(badge);
+        container.appendChild(row);
+      });
+    }
+
+    function renderLoad(serverLoad) {
+      const container = document.getElementById("server-load");
+      container.innerHTML = "";
+
+      Object.entries(serverLoad).forEach(([serverId, count]) => {
+        const row = document.createElement("div");
+        row.className = "load-row";
+
+        const name = document.createElement("span");
+        name.textContent = serverId;
+
+        const value = document.createElement("strong");
+        value.textContent = count;
+
+        row.appendChild(name);
+        row.appendChild(value);
+        container.appendChild(row);
+      });
+    }
+
+    function renderLogs(logs) {
+      const container = document.getElementById("logs-container");
+      container.innerHTML = "";
+
+      const reversedLogs = [...(logs || [])].reverse();
+      if (reversedLogs.length === 0) {
+        const empty = document.createElement("div");
+        empty.className = "log-item";
+        empty.textContent = "No events yet";
+        container.appendChild(empty);
+        return;
+      }
+
+      reversedLogs.forEach((entry) => {
+        const item = document.createElement("div");
+        item.className = "log-item";
+        item.textContent = entry;
+        container.appendChild(item);
+      });
+    }
+
+    async function fetchDashboardData() {
+      try {
+        const response = await fetch(`${API_BASE}/dashboard-data`);
+        const data = await response.json();
+
+        renderStatus(data.server_status || {});
+        renderLoad(data.server_load || {});
+        renderLogs(data.logs || []);
+
+        document.getElementById("total-messages").textContent = data.total_messages ?? 0;
+        document.getElementById("algorithm").textContent = data.algorithm || "Round Robin";
+        document.getElementById("last-routed").textContent = data.last_routed || "None";
+        document.getElementById("available-servers").textContent = (data.available_servers || []).join(", ") || "None";
+        document.getElementById("current-index").textContent = data.current_index ?? 0;
+        document.getElementById("last-updated").textContent = `Last updated: ${new Date().toLocaleTimeString()}`;
+      } catch (error) {
+        console.error("Dashboard fetch failed:", error);
+      }
+    }
+
+    createControlButtons();
+    fetchDashboardData();
+    setInterval(fetchDashboardData, 2000);
+  </script>
+</body>
+</html>
