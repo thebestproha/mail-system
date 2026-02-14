@@ -1,1 +1,50 @@
-[]
+[
+  {
+    "id": 1002,
+    "sender": "tester",
+    "receiver": "RR",
+    "content": "rr-2",
+    "status": "UNREAD",
+    "timestamp_sent": "2026-02-14 14:40:06",
+    "timestamp_read": null,
+    "checksum": "fd6bc62cbbec7f50f3900e57d07c0b0f",
+    "server_id": "S2"
+  },
+  {
+    "id": 1008,
+    "sender": "tester",
+    "receiver": "RESTORE",
+    "content": "restore-2",
+    "status": "UNREAD",
+    "timestamp_sent": "2026-02-14 14:40:06",
+    "timestamp_read": null,
+    "checksum": "2c193dcdfbd1e3e4207535685755be74",
+    "server_id": "S2"
+  },
+  {
+    "id": 3001,
+    "sender": "C1",
+    "receiver": "CORR",
+    "content": "safe [CORRUPTED]",
+    "status": "UNREAD",
+    "timestamp_sent": "2026-02-14 14:40:06",
+    "timestamp_read": null,
+    "checksum": "9dfc8dce7280fd49fc6e7bf0436ed325",
+    "server_id": "S2"
+  },
+  {
+    "id": 1771061632456,
+    "sender": "prabanjan",
+    "receiver": "client1",
+    "content": "sffs",
+    "status": "READ",
+    "timestamp_sent": "2026-02-14 15:03:52",
+    "timestamp_read": "2026-02-14 15:03:54",
+    "checksum": "225f3cfdb487d2b86fabce3e88e8ee35",
+    "server_id": "S2",
+    "hidden_for_sender": true,
+    "hidden_for_receivers": [
+      "client1"
+    ]
+  }
+]

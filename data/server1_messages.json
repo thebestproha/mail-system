@@ -1,13 +1,61 @@
 [
   {
-    "id": 9001,
-    "sender": "A",
-    "receiver": "B",
-    "content": "Integrity test [CORRUPTED]",
+    "id": 1001,
+    "sender": "tester",
+    "receiver": "RR",
+    "content": "rr-1",
     "status": "UNREAD",
-    "timestamp_sent": "2026-02-12 22:28:24",
+    "timestamp_sent": "2026-02-14 14:40:06",
     "timestamp_read": null,
-    "checksum": "18a77fefc2436b0881b5afb05eb8db38",
+    "checksum": "2700aabbab63793146d9d256b1f73e14",
     "server_id": "S1"
+  },
+  {
+    "id": 1004,
+    "sender": "tester",
+    "receiver": "FAIL",
+    "content": "fail-1",
+    "status": "UNREAD",
+    "timestamp_sent": "2026-02-14 14:40:06",
+    "timestamp_read": null,
+    "checksum": "b9fa85c3160799ca0596b4494faf00f6",
+    "server_id": "S1"
+  },
+  {
+    "id": 1006,
+    "sender": "tester",
+    "receiver": "FAIL",
+    "content": "fail-3",
+    "status": "UNREAD",
+    "timestamp_sent": "2026-02-14 14:40:06",
+    "timestamp_read": null,
+    "checksum": "fc1db28116d94721db95e64b21cfbd06",
+    "server_id": "S1"
+  },
+  {
+    "id": 2001,
+    "sender": "L1",
+    "receiver": "LIFE",
+    "content": "life-edited",
+    "status": "READ",
+    "timestamp_sent": "2026-02-14 14:40:06",
+    "timestamp_read": "2026-02-14 14:40:06",
+    "checksum": "7121ee5101c8fcc49e2f3cf4c88a1da1",
+    "server_id": "S1"
+  },
+  {
+    "id": 1771061608310,
+    "sender": "alice_tmp",
+    "receiver": "bob_tmp",
+    "content": "separation-check",
+    "status": "READ",
+    "timestamp_sent": "2026-02-14 15:03:28",
+    "timestamp_read": "2026-02-14 15:03:28",
+    "checksum": "1aa8b3c17e21fb0efddadd39c4112a55",
+    "server_id": "S1",
+    "hidden_for_sender": true,
+    "hidden_for_receivers": [
+      "bob_tmp"
+    ]
   }
 ]

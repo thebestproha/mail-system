@@ -1,1 +1,50 @@
-[]
+[
+  {
+    "id": 1003,
+    "sender": "tester",
+    "receiver": "RR",
+    "content": "rr-3",
+    "status": "UNREAD",
+    "timestamp_sent": "2026-02-14 14:40:06",
+    "timestamp_read": null,
+    "checksum": "f0f8c3e367ab72cc1af3ccc393c47a29",
+    "server_id": "S3"
+  },
+  {
+    "id": 1005,
+    "sender": "tester",
+    "receiver": "FAIL",
+    "content": "fail-2",
+    "status": "UNREAD",
+    "timestamp_sent": "2026-02-14 14:40:06",
+    "timestamp_read": null,
+    "checksum": "610d1853d9d67c7b2295299c8b4640d0",
+    "server_id": "S3"
+  },
+  {
+    "id": 1007,
+    "sender": "tester",
+    "receiver": "RESTORE",
+    "content": "restore-1",
+    "status": "UNREAD",
+    "timestamp_sent": "2026-02-14 14:40:06",
+    "timestamp_read": null,
+    "checksum": "149dcdaaa3437af6861d0433eedba345",
+    "server_id": "S3"
+  },
+  {
+    "id": 1771061711678,
+    "sender": "prabanjan",
+    "receiver": "client1",
+    "content": "edited message",
+    "status": "READ",
+    "timestamp_sent": "2026-02-14 15:05:11",
+    "timestamp_read": "2026-02-14 15:05:37",
+    "checksum": "5b8cf997f906d18edec86301b36df5bb",
+    "server_id": "S3",
+    "hidden_for_sender": true,
+    "hidden_for_receivers": [
+      "client1"
+    ]
+  }
+]

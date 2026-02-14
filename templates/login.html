@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Login</title>
+  <style>
+    body { font-family: Arial, sans-serif; background:#f4f6f8; margin:0; padding:24px; }
+    .card { max-width:420px; margin:40px auto; background:#fff; border:1px solid #d1d5db; border-radius:10px; padding:18px; }
+    h2 { margin-top:0; }
+    label { display:block; margin-top:10px; font-weight:600; }
+    input { width:100%; padding:9px; margin-top:6px; border:1px solid #d1d5db; border-radius:6px; box-sizing:border-box; }
+    button { margin-top:14px; width:100%; padding:10px; border:none; border-radius:6px; background:#2563eb; color:#fff; font-weight:700; cursor:pointer; }
+    a { color:#2563eb; text-decoration:none; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h2>User Login</h2>
+    <form method="post" action="/login">
+      <label for="username">Username</label>
+      <input id="username" name="username" required />
+
+      <label for="password">Password</label>
+      <input id="password" name="password" type="password" required />
+
+      <button type="submit">Login</button>
+    </form>
+    <p>New user? <a href="/register">Create account</a></p>
+    <p><a href="/dashboard">Open admin dashboard</a></p>
+  </div>
+</body>
+</html>

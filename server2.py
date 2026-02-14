@@ -116,6 +116,23 @@ def edit_message(message_id):
     return jsonify({"error": "Message not found"}), 404
 
 
+@app.delete("/delete/<message_id>")
+def delete_message(message_id):
+    ensure_data_file()
+    messages = json.loads(DATA_FILE.read_text(encoding="utf-8"))
+
+    for index, message in enumerate(messages):
+        if str(message.get("id")) == str(message_id):
+            if message.get("status") == "READ":
+                return jsonify({"error": "Message already read and locked"}), 400
+
+            messages.pop(index)
+            DATA_FILE.write_text(json.dumps(messages, indent=2), encoding="utf-8")
+            return jsonify({"message": "Deleted successfully", "id": message_id})
+
+    return jsonify({"error": "Message not found"}), 404
+
+
 @app.post("/corrupt/<message_id>")
 def corrupt_message(message_id):
     ensure_data_file()

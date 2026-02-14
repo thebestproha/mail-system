@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, request, render_template
+from flask import Flask, jsonify, request, render_template, redirect, url_for
 import requests
 from pathlib import Path
 import json
@@ -22,6 +22,32 @@ server_urls = {
     "S2": "http://127.0.0.1:5002",
     "S3": "http://127.0.0.1:5003",
 }
+
+USERS_FILE = Path("data/users.json")
+DATA_FILES = [
+    Path("data/server1_messages.json"),
+    Path("data/server2_messages.json"),
+    Path("data/server3_messages.json"),
+]
+
+
+def ensure_users_file() -> None:
+    USERS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    if not USERS_FILE.exists():
+        USERS_FILE.write_text(json.dumps([], indent=2), encoding="utf-8")
+
+
+def read_users() -> list:
+    ensure_users_file()
+    content = USERS_FILE.read_text(encoding="utf-8").strip()
+    if not content:
+        return []
+    return json.loads(content)
+
+
+def write_users(users: list) -> None:
+    ensure_users_file()
+    USERS_FILE.write_text(json.dumps(users, indent=2), encoding="utf-8")
 
 
 def count_messages(file_path: Path) -> int:
@@ -65,12 +91,33 @@ def get_next_server():
 
 @app.get("/")
 def home():
+    return redirect(url_for("login_page"))
+
+
+@app.get("/health")
+def health():
     return jsonify(
         {
             "message": "Load Balancer is running",
             "port": 5000,
         }
     )
+
+
+@app.get("/login")
+def login_page():
+    return render_template("login.html")
+
+
+@app.get("/register")
+def register_page():
+    return render_template("register.html")
+
+
+@app.get("/user-home")
+def user_home_page():
+    username = request.args.get("username", "")
+    return render_template("user_home.html", username=username)
 
 
 @app.get("/dashboard")
@@ -161,6 +208,206 @@ def route_request():
             "server_response": response.json(),
         }
     )
+
+
+@app.post("/register")
+def register_user():
+    payload = request.get_json(silent=True) or request.form.to_dict() or {}
+    username = (payload.get("username") or "").strip()
+    password = (payload.get("password") or "").strip()
+
+    if not username or not password:
+        return jsonify({"error": "username and password are required"}), 400
+
+    users = read_users()
+    if any(user.get("username") == username for user in users):
+        return jsonify({"error": "username already exists"}), 409
+
+    users.append({"username": username, "password": password})
+    write_users(users)
+
+    if request.is_json:
+        return jsonify({"message": "registered", "username": username}), 201
+
+    return redirect(url_for("login_page"))
+
+
+@app.post("/login")
+def login_user():
+    payload = request.get_json(silent=True) or request.form.to_dict() or {}
+    username = (payload.get("username") or "").strip()
+    password = (payload.get("password") or "").strip()
+
+    users = read_users()
+    matched = next(
+        (
+            user
+            for user in users
+            if user.get("username") == username and user.get("password") == password
+        ),
+        None,
+    )
+
+    if matched is None:
+        if request.is_json:
+            return jsonify({"error": "invalid credentials"}), 401
+        return redirect(url_for("login_page"))
+
+    if request.is_json:
+        return jsonify({"message": "login successful", "username": username})
+
+    return redirect(url_for("user_home_page", username=username))
+
+
+@app.get("/inbox/<username>")
+def get_inbox(username):
+    merged_messages = []
+
+    for _, server_url in server_urls.items():
+        try:
+            response = requests.get(f"{server_url}/messages/{username}", timeout=5)
+            if response.status_code == 200:
+                server_messages = response.json()
+                if isinstance(server_messages, list):
+                    visible_messages = [
+                        message
+                        for message in server_messages
+                        if username not in message.get("hidden_for_receivers", [])
+                    ]
+                    merged_messages.extend(visible_messages)
+        except requests.RequestException:
+            continue
+
+    merged_messages.sort(key=lambda item: item.get("timestamp_sent", ""), reverse=True)
+    return jsonify(merged_messages)
+
+
+@app.get("/sent/<username>")
+def get_sent_messages(username):
+    sent_messages = []
+    for data_file in DATA_FILES:
+        if not data_file.exists():
+            continue
+
+        content = data_file.read_text(encoding="utf-8").strip()
+        if not content:
+            continue
+
+        all_messages = json.loads(content)
+        sent_messages.extend(
+            [
+                message
+                for message in all_messages
+                if message.get("sender") == username and not message.get("hidden_for_sender", False)
+            ]
+        )
+
+    sent_messages.sort(key=lambda item: item.get("timestamp_sent", ""), reverse=True)
+    return jsonify(sent_messages)
+
+
+@app.delete("/sent-history/<username>")
+def clear_sent_history(username):
+    hidden_count = 0
+
+    for data_file in DATA_FILES:
+        if not data_file.exists():
+            continue
+
+        content = data_file.read_text(encoding="utf-8").strip()
+        if not content:
+            continue
+
+        all_messages = json.loads(content)
+        updated = False
+
+        for message in all_messages:
+            if message.get("sender") == username and not message.get("hidden_for_sender", False):
+                message["hidden_for_sender"] = True
+                hidden_count += 1
+                updated = True
+
+        if updated:
+            data_file.write_text(json.dumps(all_messages, indent=2), encoding="utf-8")
+
+    add_log(f"Cleared sent history for {username} ({hidden_count} messages hidden)")
+    return jsonify({"message": "Sent history cleared", "deleted": hidden_count})
+
+
+@app.delete("/inbox-history/<username>")
+def clear_inbox_history(username):
+    hidden_count = 0
+
+    for data_file in DATA_FILES:
+        if not data_file.exists():
+            continue
+
+        content = data_file.read_text(encoding="utf-8").strip()
+        if not content:
+            continue
+
+        all_messages = json.loads(content)
+        updated = False
+
+        for message in all_messages:
+            if message.get("receiver") != username:
+                continue
+
+            hidden_for_receivers = message.get("hidden_for_receivers", [])
+            if username not in hidden_for_receivers:
+                hidden_for_receivers.append(username)
+                message["hidden_for_receivers"] = hidden_for_receivers
+                hidden_count += 1
+                updated = True
+
+        if updated:
+            data_file.write_text(json.dumps(all_messages, indent=2), encoding="utf-8")
+
+    add_log(f"Cleared inbox history for {username} ({hidden_count} messages hidden)")
+    return jsonify({"message": "Inbox history cleared", "deleted": hidden_count})
+
+
+@app.put("/edit-message/<message_id>")
+def edit_message(message_id):
+    payload = request.get_json(silent=True) or {}
+    content = payload.get("content", "")
+
+    for server_id, server_url in server_urls.items():
+        try:
+            response = requests.put(
+                f"{server_url}/edit/{message_id}",
+                json={"content": content},
+                timeout=5,
+            )
+
+            if response.status_code == 200:
+                add_log(f"Message {message_id} edited on {server_id}")
+                return jsonify({"server": server_id, **response.json()})
+
+            if response.status_code == 400:
+                return jsonify(response.json()), 400
+        except requests.RequestException:
+            continue
+
+    return jsonify({"error": "Message not found"}), 404
+
+
+@app.delete("/delete-message/<message_id>")
+def delete_message(message_id):
+    for server_id, server_url in server_urls.items():
+        try:
+            response = requests.delete(f"{server_url}/delete/{message_id}", timeout=5)
+
+            if response.status_code == 200:
+                add_log(f"Message {message_id} deleted on {server_id}")
+                return jsonify({"server": server_id, **response.json()})
+
+            if response.status_code == 400:
+                return jsonify(response.json()), 400
+        except requests.RequestException:
+            continue
+
+    return jsonify({"error": "Message not found"}), 404
 
 
 if __name__ == "__main__":
