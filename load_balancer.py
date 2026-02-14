@@ -185,12 +185,18 @@ def restore_server(server_id):
 def route_request():
     global last_routed
 
+    payload = request.get_json(silent=True) or {}
+    receiver = (payload.get("receiver") or "").strip()
+
+    users = read_users()
+    if not any(user.get("username") == receiver for user in users):
+        return jsonify({"error": "Receiver does not exist"}), 400
+
     try:
         server_id = get_next_server()
     except ValueError as error:
         return jsonify({"error": str(error)}), 503
 
-    payload = request.get_json(silent=True) or {}
     message_id = payload.get("id")
     target_url = f"{server_urls[server_id]}/receive"
 
@@ -222,7 +228,7 @@ def register_user():
 
     users = read_users()
     if any(user.get("username") == username for user in users):
-        return jsonify({"error": "username already exists"}), 409
+        return jsonify({"error": "Username already exists"}), 400
 
     users.append({"username": username, "password": password})
     write_users(users)
