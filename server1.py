@@ -9,7 +9,7 @@ import os
 app = Flask(__name__)
 
 SERVER_ID = "S1"
-SERVER_PORT = int(os.getenv("PORT", 5001))
+SERVER_PORT = 5001
 DATA_FILE = Path("data/server1_messages.json")
 
 
@@ -150,4 +150,5 @@ def corrupt_message(message_id):
 
 if __name__ == "__main__":
     ensure_data_file()
-    app.run(host="0.0.0.0", port=SERVER_PORT, debug=False)
+    port = int(os.getenv("PORT", 5001))
+    app.run(host="0.0.0.0", port=5001, debug=False)

@@ -3,13 +3,12 @@ from pathlib import Path
 import json
 from datetime import datetime
 import hashlib
-import os
 
 
 app = Flask(__name__)
 
 SERVER_ID = "S2"
-SERVER_PORT = int(os.getenv("PORT", 5002))
+SERVER_PORT = 5002
 DATA_FILE = Path("data/server2_messages.json")
 
 
@@ -150,4 +149,4 @@ def corrupt_message(message_id):
 
 if __name__ == "__main__":
     ensure_data_file()
-    app.run(host="0.0.0.0", port=SERVER_PORT, debug=False)
+    app.run(host="0.0.0.0", port=5002, debug=False)
