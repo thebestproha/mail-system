@@ -9,28 +9,18 @@ SERVER_ID = "S1"
 SERVER_PORT = os.getenv("PORT", "")
 
 
-def resolve_database_url() -> str:
-    database_url = (os.getenv("DATABASE_URL") or "").strip()
-    if not database_url:
-        return ""
-    if "sslmode=" in database_url:
-        return database_url
-    separator = "&" if "?" in database_url else "?"
-    return f"{database_url}{separator}sslmode=require"
-
-
-DATABASE_URL = resolve_database_url()
-db_initialized = False
+class DatabaseConnectionError(Exception):
+    pass
 
 
 def get_db_connection():
     import os
     import psycopg2
 
-    database_url = os.environ.get("DATABASE_URL")
+    database_url = (os.environ.get("DATABASE_URL") or "").strip()
 
     if not database_url:
-        raise Exception("DATABASE_URL not set")
+        raise DatabaseConnectionError("DATABASE_URL not set")
 
     if "sslmode" not in database_url:
         if "?" in database_url:
@@ -38,48 +28,15 @@ def get_db_connection():
         else:
             database_url += "?sslmode=require"
 
-    return psycopg2.connect(database_url, connect_timeout=5)
-
-
-def init_db() -> None:
-    with get_db_connection() as connection:
-        with connection.cursor() as cursor:
-            cursor.execute(
-                """
-                CREATE TABLE IF NOT EXISTS messages (
-                id BIGINT PRIMARY KEY,
-                sender TEXT,
-                receiver TEXT,
-                content TEXT,
-                status TEXT,
-                checksum TEXT,
-                server_id TEXT,
-                timestamp_sent TIMESTAMP DEFAULT NOW(),
-                timestamp_read TIMESTAMP,
-                CHECK (status IN ('UNREAD', 'READ'))
-                )
-                """
-            )
-        connection.commit()
-
-
-def ensure_db_initialized() -> None:
-    global db_initialized
-    if db_initialized:
-        return
-    init_db()
-    db_initialized = True
-
-
-@app.before_request
-def prepare_database():
-    if request.endpoint in {"home", "health"}:
-        return None
     try:
-        ensure_db_initialized()
+        return psycopg2.connect(database_url, connect_timeout=5)
     except Exception as error:
-        return jsonify({"error": "Database unavailable", "details": str(error)}), 503
-    return None
+        raise DatabaseConnectionError(str(error)) from error
+
+
+@app.errorhandler(DatabaseConnectionError)
+def handle_db_connection_error(error):
+    return jsonify({"error": "Database unavailable", "details": str(error)}), 503
 
 
 @app.get("/")
@@ -95,15 +52,7 @@ def home():
 
 @app.get("/health")
 def health():
-    try:
-        conn = get_db_connection()
-        conn.close()
-        return jsonify({"status": "ok"}), 200
-    except Exception as e:
-        return jsonify({
-            "status": "error",
-            "reason": str(e)
-        }), 500
+    return {"status": "ok"}, 200
 
 
 @app.post("/receive")
