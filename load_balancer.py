@@ -1,7 +1,8 @@
 from flask import Flask, jsonify, request, render_template, redirect, url_for
 import requests
 import os
-import psycopg2
+from pathlib import Path
+import json
 
 
 app = Flask(__name__)
@@ -15,6 +16,7 @@ server_status = {
 available_servers = ["S1", "S2", "S3"]
 current_index = 0
 last_routed = None
+event_logs = []
 
 server_urls = {
     "S1": os.getenv("S1_URL", "http://127.0.0.1:5001"),
@@ -22,73 +24,32 @@ server_urls = {
     "S3": os.getenv("S3_URL", "http://127.0.0.1:5003"),
 }
 
-DATABASE_URL = os.getenv("DATABASE_URL")
+USERS_FILE = Path("data/users.json")
 
 
-def get_db_connection():
-    return psycopg2.connect(DATABASE_URL)
+def ensure_users_file() -> None:
+    USERS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    if not USERS_FILE.exists():
+        USERS_FILE.write_text(json.dumps([], indent=2), encoding="utf-8")
 
 
-def init_db() -> None:
-    with get_db_connection() as connection:
-        with connection.cursor() as cursor:
-            cursor.execute(
-                """
-                CREATE TABLE IF NOT EXISTS users (
-                id SERIAL PRIMARY KEY,
-                username TEXT UNIQUE NOT NULL,
-                password TEXT NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-                """
-            )
-            cursor.execute(
-                """
-                CREATE TABLE IF NOT EXISTS messages (
-                id INTEGER PRIMARY KEY,
-                sender TEXT NOT NULL,
-                receiver TEXT NOT NULL,
-                content TEXT NOT NULL,
-                status TEXT DEFAULT 'UNREAD',
-                timestamp_sent TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                timestamp_read TIMESTAMP,
-                checksum TEXT NOT NULL,
-                server_id TEXT NOT NULL
-                )
-                """
-            )
-            cursor.execute(
-                """
-                CREATE TABLE IF NOT EXISTS event_logs (
-                id SERIAL PRIMARY KEY,
-                event TEXT NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-                """
-            )
-            cursor.execute(
-                "CREATE INDEX IF NOT EXISTS idx_messages_receiver ON messages(receiver)"
-            )
-            cursor.execute(
-                "CREATE INDEX IF NOT EXISTS idx_messages_sender ON messages(sender)"
-            )
-            cursor.execute(
-                "CREATE INDEX IF NOT EXISTS idx_messages_server ON messages(server_id)"
-            )
-            cursor.execute(
-                "CREATE INDEX IF NOT EXISTS idx_messages_status ON messages(status)"
-            )
-        connection.commit()
+def read_users() -> list:
+    ensure_users_file()
+    content = USERS_FILE.read_text(encoding="utf-8").strip()
+    if not content:
+        return []
+    return json.loads(content)
 
 
-init_db()
+def write_users(users: list) -> None:
+    ensure_users_file()
+    USERS_FILE.write_text(json.dumps(users, indent=2), encoding="utf-8")
 
 
 def add_log(message: str) -> None:
-    with get_db_connection() as connection:
-        with connection.cursor() as cursor:
-            cursor.execute("INSERT INTO event_logs (event) VALUES (%s)", (message,))
-        connection.commit()
+    event_logs.append(message)
+    if len(event_logs) > 20:
+        event_logs.pop(0)
 
 
 def get_next_server():
@@ -156,27 +117,19 @@ def get_servers():
 
 @app.get("/dashboard-data")
 def dashboard_data():
-    with get_db_connection() as connection:
-        with connection.cursor() as cursor:
-            cursor.execute("SELECT COUNT(*) FROM messages WHERE server_id='S1'")
-            s1_row = cursor.fetchone()
-            cursor.execute("SELECT COUNT(*) FROM messages WHERE server_id='S2'")
-            s2_row = cursor.fetchone()
-            cursor.execute("SELECT COUNT(*) FROM messages WHERE server_id='S3'")
-            s3_row = cursor.fetchone()
-            cursor.execute("SELECT COUNT(*) FROM messages")
-            total_row = cursor.fetchone()
-            cursor.execute("SELECT event FROM event_logs ORDER BY id DESC LIMIT 20")
-            log_rows = cursor.fetchall()
+    server_load = {"S1": 0, "S2": 0, "S3": 0}
 
-    server_load = {
-        "S1": int(s1_row[0] if s1_row else 0),
-        "S2": int(s2_row[0] if s2_row else 0),
-        "S3": int(s3_row[0] if s3_row else 0),
-    }
+    for server_id, server_url in server_urls.items():
+        try:
+            response = requests.get(f"{server_url}/stats", timeout=5)
+            if response.status_code == 200:
+                data = response.json()
+                server_load[server_id] = int(data.get("message_count", 0))
+        except requests.RequestException:
+            continue
 
-    total_messages = int(total_row[0] if total_row else 0)
-    logs = [row[0] for row in reversed(log_rows)]
+    total_messages = sum(server_load.values())
+    logs = event_logs
 
     return jsonify(
         {
@@ -225,15 +178,8 @@ def route_request():
     payload = request.get_json(silent=True) or {}
     receiver = (payload.get("receiver") or "").strip()
 
-    with get_db_connection() as connection:
-        with connection.cursor() as cursor:
-            cursor.execute(
-                "SELECT 1 FROM users WHERE username = %s",
-                (receiver,),
-            )
-            matched_receiver = cursor.fetchone()
-
-    if matched_receiver is None:
+    users = read_users()
+    if not any(user.get("username") == receiver for user in users):
         return jsonify({"error": "Receiver does not exist"}), 400
 
     try:
@@ -270,16 +216,12 @@ def register_user():
     if not username or not password:
         return jsonify({"error": "username and password are required"}), 400
 
-    try:
-        with get_db_connection() as connection:
-            with connection.cursor() as cursor:
-                cursor.execute(
-                    "INSERT INTO users (username, password) VALUES (%s, %s)",
-                    (username, password),
-                )
-            connection.commit()
-    except psycopg2.IntegrityError:
+    users = read_users()
+    if any(user.get("username") == username for user in users):
         return jsonify({"error": "Username already exists"}), 400
+
+    users.append({"username": username, "password": password})
+    write_users(users)
 
     if request.is_json:
         return jsonify({"message": "registered", "username": username}), 201
@@ -293,13 +235,15 @@ def login_user():
     username = (payload.get("username") or "").strip()
     password = (payload.get("password") or "").strip()
 
-    with get_db_connection() as connection:
-        with connection.cursor() as cursor:
-            cursor.execute(
-                "SELECT id FROM users WHERE username = %s AND password = %s",
-                (username, password),
-            )
-            matched = cursor.fetchone()
+    users = read_users()
+    matched = next(
+        (
+            user
+            for user in users
+            if user.get("username") == username and user.get("password") == password
+        ),
+        None,
+    )
 
     if matched is None:
         if request.is_json:
@@ -342,44 +286,33 @@ def get_inbox(username):
 
 @app.get("/sent/<username>")
 def get_sent_messages(username):
-    with get_db_connection() as connection:
-        with connection.cursor() as cursor:
-            cursor.execute(
-                """
-                SELECT id, sender, receiver, content, status, timestamp_sent, timestamp_read, checksum, server_id
-                FROM messages
-                WHERE sender = %s
-                ORDER BY timestamp_sent DESC
-                """,
-                (username,),
-            )
-            rows = cursor.fetchall()
+    sent_messages = []
+    for _, server_url in server_urls.items():
+        try:
+            response = requests.get(f"{server_url}/sent/{username}", timeout=5)
+            if response.status_code == 200:
+                server_messages = response.json()
+                if isinstance(server_messages, list):
+                    sent_messages.extend(server_messages)
+        except requests.RequestException:
+            continue
 
-    sent_messages = [
-        {
-            "id": row[0],
-            "sender": row[1],
-            "receiver": row[2],
-            "content": row[3],
-            "status": row[4],
-            "timestamp_sent": row[5],
-            "timestamp_read": row[6],
-            "checksum": row[7],
-            "server_id": row[8],
-        }
-        for row in rows
-    ]
+    sent_messages.sort(key=lambda item: item.get("timestamp_sent", ""), reverse=True)
 
     return jsonify(sent_messages)
 
 
 @app.delete("/sent-history/<username>")
 def clear_sent_history(username):
-    with get_db_connection() as connection:
-        with connection.cursor() as cursor:
-            cursor.execute("DELETE FROM messages WHERE sender = %s", (username,))
-            hidden_count = cursor.rowcount if cursor.rowcount is not None else 0
-        connection.commit()
+    hidden_count = 0
+    for _, server_url in server_urls.items():
+        try:
+            response = requests.delete(f"{server_url}/sent-history/{username}", timeout=5)
+            if response.status_code == 200:
+                data = response.json()
+                hidden_count += int(data.get("deleted", 0))
+        except requests.RequestException:
+            continue
 
     add_log(f"Cleared sent history for {username} ({hidden_count} messages hidden)")
     return jsonify({"message": "Sent history cleared", "deleted": hidden_count})
@@ -387,11 +320,15 @@ def clear_sent_history(username):
 
 @app.delete("/inbox-history/<username>")
 def clear_inbox_history(username):
-    with get_db_connection() as connection:
-        with connection.cursor() as cursor:
-            cursor.execute("DELETE FROM messages WHERE receiver = %s", (username,))
-            hidden_count = cursor.rowcount if cursor.rowcount is not None else 0
-        connection.commit()
+    hidden_count = 0
+    for _, server_url in server_urls.items():
+        try:
+            response = requests.delete(f"{server_url}/inbox-history/{username}", timeout=5)
+            if response.status_code == 200:
+                data = response.json()
+                hidden_count += int(data.get("deleted", 0))
+        except requests.RequestException:
+            continue
 
     add_log(f"Cleared inbox history for {username} ({hidden_count} messages hidden)")
     return jsonify({"message": "Inbox history cleared", "deleted": hidden_count})

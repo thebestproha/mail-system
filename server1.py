@@ -21,15 +21,16 @@ def init_db() -> None:
             cursor.execute(
                 """
                 CREATE TABLE IF NOT EXISTS messages (
-                id INTEGER PRIMARY KEY,
-                sender TEXT NOT NULL,
-                receiver TEXT NOT NULL,
-                content TEXT NOT NULL,
-                status TEXT DEFAULT 'UNREAD',
-                timestamp_sent TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                id BIGINT PRIMARY KEY,
+                sender TEXT,
+                receiver TEXT,
+                content TEXT,
+                status TEXT,
+                checksum TEXT,
+                server_id TEXT,
+                timestamp_sent TIMESTAMP DEFAULT NOW(),
                 timestamp_read TIMESTAMP,
-                checksum TEXT NOT NULL,
-                server_id TEXT NOT NULL
+                CHECK (status IN ('UNREAD', 'READ'))
                 )
                 """
             )
@@ -218,6 +219,80 @@ def corrupt_message(message_id):
             return jsonify({"error": "Message not found"}), 404
 
     return jsonify({"message": "Message corrupted for testing", "id": message_id})
+
+
+@app.get("/sent/<username>")
+def get_sent_messages(username):
+    with get_db_connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT id, sender, receiver, content, status, timestamp_sent, timestamp_read, checksum, server_id
+                FROM messages
+                WHERE sender = %s AND server_id = %s
+                ORDER BY timestamp_sent DESC
+                """,
+                (username, SERVER_ID),
+            )
+            rows = cursor.fetchall()
+
+    sent_messages = [
+        {
+            "id": row[0],
+            "sender": row[1],
+            "receiver": row[2],
+            "content": row[3],
+            "status": row[4],
+            "timestamp_sent": row[5],
+            "timestamp_read": row[6],
+            "checksum": row[7],
+            "server_id": row[8],
+        }
+        for row in rows
+    ]
+
+    return jsonify(sent_messages)
+
+
+@app.delete("/sent-history/<username>")
+def clear_sent_history(username):
+    with get_db_connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "DELETE FROM messages WHERE sender = %s AND server_id = %s",
+                (username, SERVER_ID),
+            )
+            deleted_count = cursor.rowcount if cursor.rowcount is not None else 0
+        connection.commit()
+
+    return jsonify({"message": "Sent history cleared", "deleted": deleted_count})
+
+
+@app.delete("/inbox-history/<username>")
+def clear_inbox_history(username):
+    with get_db_connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "DELETE FROM messages WHERE receiver = %s AND server_id = %s",
+                (username, SERVER_ID),
+            )
+            deleted_count = cursor.rowcount if cursor.rowcount is not None else 0
+        connection.commit()
+
+    return jsonify({"message": "Inbox history cleared", "deleted": deleted_count})
+
+
+@app.get("/stats")
+def get_stats():
+    with get_db_connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT COUNT(*) FROM messages WHERE server_id = %s",
+                (SERVER_ID,),
+            )
+            row = cursor.fetchone()
+
+    return jsonify({"server_id": SERVER_ID, "message_count": int(row[0] if row else 0)})
 
 
 if __name__ == "__main__":
