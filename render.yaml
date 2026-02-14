@@ -1,0 +1,40 @@
+services:
+  - type: web
+    name: load-balancer
+    env: python
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "gunicorn load_balancer:app"
+    envVars:
+      - key: S1_URL
+        fromService:
+          type: web
+          name: server1
+          property: host
+      - key: S2_URL
+        fromService:
+          type: web
+          name: server2
+          property: host
+      - key: S3_URL
+        fromService:
+          type: web
+          name: server3
+          property: host
+
+  - type: web
+    name: server1
+    env: python
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "gunicorn server1:app"
+
+  - type: web
+    name: server2
+    env: python
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "gunicorn server2:app"
+
+  - type: web
+    name: server3
+    env: python
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "gunicorn server3:app"

@@ -2,6 +2,7 @@ from flask import Flask, jsonify, request, render_template, redirect, url_for
 import requests
 from pathlib import Path
 import json
+import os
 
 
 app = Flask(__name__)
@@ -18,9 +19,9 @@ event_logs = []
 last_routed = None
 
 server_urls = {
-    "S1": "http://127.0.0.1:5001",
-    "S2": "http://127.0.0.1:5002",
-    "S3": "http://127.0.0.1:5003",
+    "S1": os.getenv("S1_URL", "http://127.0.0.1:5001"),
+    "S2": os.getenv("S2_URL", "http://127.0.0.1:5002"),
+    "S3": os.getenv("S3_URL", "http://127.0.0.1:5003"),
 }
 
 USERS_FILE = Path("data/users.json")
@@ -411,4 +412,5 @@ def delete_message(message_id):
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    port = int(os.getenv("PORT", 5000))
+    app.run(host="0.0.0.0", port=port, debug=False)
