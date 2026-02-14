@@ -165,8 +165,6 @@
   </div>
 
   <script>
-    const API_BASE = "http://127.0.0.1:5000";
-
     function createControlButtons() {
       const container = document.getElementById("buttons-container");
       container.innerHTML = "";
@@ -193,7 +191,7 @@
 
     async function postAction(path) {
       try {
-        await fetch(`${API_BASE}${path}`, { method: "POST" });
+        await fetch(path, { method: "POST" });
         await fetchDashboardData();
       } catch (error) {
         console.error("Action failed:", error);
@@ -264,7 +262,7 @@
 
     async function fetchDashboardData() {
       try {
-        const response = await fetch(`${API_BASE}/dashboard-data`);
+        const response = await fetch("/dashboard-data");
         const data = await response.json();
 
         renderStatus(data.server_status || {});
