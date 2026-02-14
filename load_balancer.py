@@ -1,8 +1,8 @@
 from flask import Flask, jsonify, request, render_template, redirect, url_for
 import requests
 from pathlib import Path
-import json
 import os
+import sqlite3
 
 
 app = Flask(__name__)
@@ -15,7 +15,6 @@ server_status = {
 
 available_servers = ["S1", "S2", "S3"]
 current_index = 0
-event_logs = []
 last_routed = None
 
 server_urls = {
@@ -24,48 +23,71 @@ server_urls = {
     "S3": os.getenv("S3_URL", "http://127.0.0.1:5003"),
 }
 
-USERS_FILE = Path("data/users.json")
-DATA_FILES = [
-    Path("data/server1_messages.json"),
-    Path("data/server2_messages.json"),
-    Path("data/server3_messages.json"),
-]
+DB_PATH = Path("mail_system.db")
 
 
-def ensure_users_file() -> None:
-    USERS_FILE.parent.mkdir(parents=True, exist_ok=True)
-    if not USERS_FILE.exists():
-        USERS_FILE.write_text(json.dumps([], indent=2), encoding="utf-8")
+def get_db_connection() -> sqlite3.Connection:
+    return sqlite3.connect(DB_PATH)
 
 
-def read_users() -> list:
-    ensure_users_file()
-    content = USERS_FILE.read_text(encoding="utf-8").strip()
-    if not content:
-        return []
-    return json.loads(content)
+def init_db() -> None:
+    with get_db_connection() as connection:
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            password TEXT NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS messages (
+            id INTEGER PRIMARY KEY,
+            sender TEXT NOT NULL,
+            receiver TEXT NOT NULL,
+            content TEXT NOT NULL,
+            status TEXT CHECK(status IN ('UNREAD','READ')) DEFAULT 'UNREAD',
+            timestamp_sent DATETIME DEFAULT CURRENT_TIMESTAMP,
+            timestamp_read DATETIME,
+            checksum TEXT NOT NULL,
+            server_id TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS event_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            event TEXT NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_messages_receiver ON messages(receiver)"
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_messages_sender ON messages(sender)"
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_messages_server ON messages(server_id)"
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_messages_status ON messages(status)"
+        )
+        connection.commit()
 
 
-def write_users(users: list) -> None:
-    ensure_users_file()
-    USERS_FILE.write_text(json.dumps(users, indent=2), encoding="utf-8")
-
-
-def count_messages(file_path: Path) -> int:
-    if not file_path.exists():
-        return 0
-
-    content = file_path.read_text(encoding="utf-8").strip()
-    if not content:
-        return 0
-
-    return len(json.loads(content))
+init_db()
 
 
 def add_log(message: str) -> None:
-    event_logs.append(message)
-    if len(event_logs) > 20:
-        event_logs.pop(0)
+    with get_db_connection() as connection:
+        connection.execute("INSERT INTO event_logs (event) VALUES (?)", (message,))
+        connection.commit()
 
 
 def get_next_server():
@@ -133,13 +155,23 @@ def get_servers():
 
 @app.get("/dashboard-data")
 def dashboard_data():
+    with get_db_connection() as connection:
+        s1_row = connection.execute("SELECT COUNT(*) FROM messages WHERE server_id='S1'").fetchone()
+        s2_row = connection.execute("SELECT COUNT(*) FROM messages WHERE server_id='S2'").fetchone()
+        s3_row = connection.execute("SELECT COUNT(*) FROM messages WHERE server_id='S3'").fetchone()
+        total_row = connection.execute("SELECT COUNT(*) FROM messages").fetchone()
+        log_rows = connection.execute(
+            "SELECT event FROM event_logs ORDER BY id DESC LIMIT 20"
+        ).fetchall()
+
     server_load = {
-        "S1": count_messages(Path("data/server1_messages.json")),
-        "S2": count_messages(Path("data/server2_messages.json")),
-        "S3": count_messages(Path("data/server3_messages.json")),
+        "S1": int(s1_row[0] if s1_row else 0),
+        "S2": int(s2_row[0] if s2_row else 0),
+        "S3": int(s3_row[0] if s3_row else 0),
     }
 
-    total_messages = sum(server_load.values())
+    total_messages = int(total_row[0] if total_row else 0)
+    logs = [row[0] for row in reversed(log_rows)]
 
     return jsonify(
         {
@@ -149,7 +181,7 @@ def dashboard_data():
             "server_load": server_load,
             "total_messages": total_messages,
             "algorithm": "Round Robin",
-            "logs": event_logs,
+            "logs": logs,
             "last_routed": last_routed,
         }
     )
@@ -188,8 +220,13 @@ def route_request():
     payload = request.get_json(silent=True) or {}
     receiver = (payload.get("receiver") or "").strip()
 
-    users = read_users()
-    if not any(user.get("username") == receiver for user in users):
+    with get_db_connection() as connection:
+        matched_receiver = connection.execute(
+            "SELECT 1 FROM users WHERE username = ?",
+            (receiver,),
+        ).fetchone()
+
+    if matched_receiver is None:
         return jsonify({"error": "Receiver does not exist"}), 400
 
     try:
@@ -226,12 +263,15 @@ def register_user():
     if not username or not password:
         return jsonify({"error": "username and password are required"}), 400
 
-    users = read_users()
-    if any(user.get("username") == username for user in users):
+    try:
+        with get_db_connection() as connection:
+            connection.execute(
+                "INSERT INTO users (username, password) VALUES (?, ?)",
+                (username, password),
+            )
+            connection.commit()
+    except sqlite3.IntegrityError:
         return jsonify({"error": "Username already exists"}), 400
-
-    users.append({"username": username, "password": password})
-    write_users(users)
 
     if request.is_json:
         return jsonify({"message": "registered", "username": username}), 201
@@ -245,15 +285,11 @@ def login_user():
     username = (payload.get("username") or "").strip()
     password = (payload.get("password") or "").strip()
 
-    users = read_users()
-    matched = next(
-        (
-            user
-            for user in users
-            if user.get("username") == username and user.get("password") == password
-        ),
-        None,
-    )
+    with get_db_connection() as connection:
+        matched = connection.execute(
+            "SELECT id FROM users WHERE username = ? AND password = ?",
+            (username, password),
+        ).fetchone()
 
     if matched is None:
         if request.is_json:
@@ -269,6 +305,7 @@ def login_user():
 @app.get("/inbox/<username>")
 def get_inbox(username):
     merged_messages = []
+    seen_ids = set()
 
     for _, server_url in server_urls.items():
         try:
@@ -279,9 +316,13 @@ def get_inbox(username):
                     visible_messages = [
                         message
                         for message in server_messages
-                        if username not in message.get("hidden_for_receivers", [])
                     ]
-                    merged_messages.extend(visible_messages)
+                    for message in visible_messages:
+                        message_id = message.get("id")
+                        if message_id in seen_ids:
+                            continue
+                        seen_ids.add(message_id)
+                        merged_messages.append(message)
         except requests.RequestException:
             continue
 
@@ -291,51 +332,41 @@ def get_inbox(username):
 
 @app.get("/sent/<username>")
 def get_sent_messages(username):
-    sent_messages = []
-    for data_file in DATA_FILES:
-        if not data_file.exists():
-            continue
+    with get_db_connection() as connection:
+        rows = connection.execute(
+            """
+            SELECT id, sender, receiver, content, status, timestamp_sent, timestamp_read, checksum, server_id
+            FROM messages
+            WHERE sender = ?
+            ORDER BY timestamp_sent DESC
+            """,
+            (username,),
+        ).fetchall()
 
-        content = data_file.read_text(encoding="utf-8").strip()
-        if not content:
-            continue
+    sent_messages = [
+        {
+            "id": row[0],
+            "sender": row[1],
+            "receiver": row[2],
+            "content": row[3],
+            "status": row[4],
+            "timestamp_sent": row[5],
+            "timestamp_read": row[6],
+            "checksum": row[7],
+            "server_id": row[8],
+        }
+        for row in rows
+    ]
 
-        all_messages = json.loads(content)
-        sent_messages.extend(
-            [
-                message
-                for message in all_messages
-                if message.get("sender") == username and not message.get("hidden_for_sender", False)
-            ]
-        )
-
-    sent_messages.sort(key=lambda item: item.get("timestamp_sent", ""), reverse=True)
     return jsonify(sent_messages)
 
 
 @app.delete("/sent-history/<username>")
 def clear_sent_history(username):
-    hidden_count = 0
-
-    for data_file in DATA_FILES:
-        if not data_file.exists():
-            continue
-
-        content = data_file.read_text(encoding="utf-8").strip()
-        if not content:
-            continue
-
-        all_messages = json.loads(content)
-        updated = False
-
-        for message in all_messages:
-            if message.get("sender") == username and not message.get("hidden_for_sender", False):
-                message["hidden_for_sender"] = True
-                hidden_count += 1
-                updated = True
-
-        if updated:
-            data_file.write_text(json.dumps(all_messages, indent=2), encoding="utf-8")
+    with get_db_connection() as connection:
+        cursor = connection.execute("DELETE FROM messages WHERE sender = ?", (username,))
+        connection.commit()
+        hidden_count = cursor.rowcount if cursor.rowcount is not None else 0
 
     add_log(f"Cleared sent history for {username} ({hidden_count} messages hidden)")
     return jsonify({"message": "Sent history cleared", "deleted": hidden_count})
@@ -343,32 +374,10 @@ def clear_sent_history(username):
 
 @app.delete("/inbox-history/<username>")
 def clear_inbox_history(username):
-    hidden_count = 0
-
-    for data_file in DATA_FILES:
-        if not data_file.exists():
-            continue
-
-        content = data_file.read_text(encoding="utf-8").strip()
-        if not content:
-            continue
-
-        all_messages = json.loads(content)
-        updated = False
-
-        for message in all_messages:
-            if message.get("receiver") != username:
-                continue
-
-            hidden_for_receivers = message.get("hidden_for_receivers", [])
-            if username not in hidden_for_receivers:
-                hidden_for_receivers.append(username)
-                message["hidden_for_receivers"] = hidden_for_receivers
-                hidden_count += 1
-                updated = True
-
-        if updated:
-            data_file.write_text(json.dumps(all_messages, indent=2), encoding="utf-8")
+    with get_db_connection() as connection:
+        cursor = connection.execute("DELETE FROM messages WHERE receiver = ?", (username,))
+        connection.commit()
+        hidden_count = cursor.rowcount if cursor.rowcount is not None else 0
 
     add_log(f"Cleared inbox history for {username} ({hidden_count} messages hidden)")
     return jsonify({"message": "Inbox history cleared", "deleted": hidden_count})

@@ -79,6 +79,7 @@
       messages.forEach((message) => {
         const div = document.createElement("div");
         div.className = "item";
+        const renderedContent = (message.content || "").replace(/\n/g, "<br>");
 
         const title = type === "inbox"
           ? `From: ${message.sender || "-"}`
@@ -86,7 +87,7 @@
 
         div.innerHTML = `
           <div><strong>${title}</strong></div>
-          <div>${message.content || ""}</div>
+          <div>${renderedContent}</div>
           <div class="meta">ID: ${message.id} | Server: ${message.server_id || "-"} | Sent: ${message.timestamp_sent || "-"}</div>
           <div class="status">${message.status || ""}</div>
         `;

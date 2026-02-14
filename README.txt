@@ -2,7 +2,7 @@ CN Mini Mail System
 ===================
 
 Project: Mini Multi-User Mail System
-Architecture: Browser Client -> Load Balancer (5000) -> Server1 (5001), Server2 (5002), Server3 (5003) -> JSON Files
+Architecture: Browser Client -> Load Balancer (5000) -> Server1 (5001), Server2 (5002), Server3 (5003) -> SQLite Database
 
 Files
 -----
@@ -10,9 +10,7 @@ Files
 - server1.py
 - server2.py
 - server3.py
-- data/server1_messages.json
-- data/server2_messages.json
-- data/server3_messages.json
+- mail_system.db
 - templates/dashboard.html
 
 Requirements
@@ -89,7 +87,7 @@ Quick Demo Flow (Viva)
 ----------------------
 1) Round Robin fairness
 - Send 9 messages to POST http://127.0.0.1:5000/route
-- Verify each JSON file receives 3 messages.
+- Verify each logical server receives 3 messages via dashboard counts.
 
 2) Fault tolerance
 - POST /fail/S2
@@ -115,4 +113,4 @@ Quick Demo Flow (Viva)
 Notes
 -----
 - Keep all 4 services running during demo.
-- Data is stored in JSON files under /data.
+- Data is stored in SQLite database file: mail_system.db.

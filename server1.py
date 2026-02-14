@@ -1,22 +1,42 @@
 from flask import Flask, jsonify, request
 from pathlib import Path
-import json
-from datetime import datetime
 import hashlib
 import os
+import sqlite3
 
 
 app = Flask(__name__)
 
 SERVER_ID = "S1"
 SERVER_PORT = 5001
-DATA_FILE = Path("data/server1_messages.json")
+DB_PATH = Path("mail_system.db")
 
 
-def ensure_data_file() -> None:
-    DATA_FILE.parent.mkdir(parents=True, exist_ok=True)
-    if not DATA_FILE.exists():
-        DATA_FILE.write_text(json.dumps([], indent=2), encoding="utf-8")
+def get_db_connection() -> sqlite3.Connection:
+    return sqlite3.connect(DB_PATH)
+
+
+def init_db() -> None:
+    with get_db_connection() as connection:
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS messages (
+            id INTEGER PRIMARY KEY,
+            sender TEXT NOT NULL,
+            receiver TEXT NOT NULL,
+            content TEXT NOT NULL,
+            status TEXT CHECK(status IN ('UNREAD','READ')) DEFAULT 'UNREAD',
+            timestamp_sent DATETIME DEFAULT CURRENT_TIMESTAMP,
+            timestamp_read DATETIME,
+            checksum TEXT NOT NULL,
+            server_id TEXT NOT NULL
+            )
+            """
+        )
+        connection.commit()
+
+
+init_db()
 
 
 @app.get("/")
@@ -44,22 +64,21 @@ def receive_message():
     receiver = payload.get("receiver")
     content = payload.get("content", "")
 
-    message = {
-        "id": message_id,
-        "sender": sender,
-        "receiver": receiver,
-        "content": content,
-        "status": "UNREAD",
-        "timestamp_sent": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "timestamp_read": None,
-        "checksum": hashlib.md5(content.encode()).hexdigest(),
-        "server_id": SERVER_ID,
-    }
+    checksum = hashlib.md5(content.encode()).hexdigest()
 
-    ensure_data_file()
-    messages = json.loads(DATA_FILE.read_text(encoding="utf-8"))
-    messages.append(message)
-    DATA_FILE.write_text(json.dumps(messages, indent=2), encoding="utf-8")
+    try:
+        with get_db_connection() as connection:
+            connection.execute(
+                """
+                INSERT INTO messages
+                (id, sender, receiver, content, status, checksum, server_id)
+                VALUES (?, ?, ?, ?, 'UNREAD', ?, ?)
+                """,
+                (message_id, sender, receiver, content, checksum, SERVER_ID),
+            )
+            connection.commit()
+    except sqlite3.IntegrityError:
+        return jsonify({"error": "Message id already exists"}), 400
 
     return jsonify(
         {
@@ -72,26 +91,56 @@ def receive_message():
 
 @app.get("/messages/<username>")
 def get_messages(username):
-    ensure_data_file()
-    messages = json.loads(DATA_FILE.read_text(encoding="utf-8"))
+    with get_db_connection() as connection:
+        rows = connection.execute(
+            """
+            SELECT id, sender, receiver, content, status, timestamp_sent, timestamp_read, checksum, server_id
+            FROM messages
+            WHERE receiver = ? AND server_id = ?
+            ORDER BY timestamp_sent DESC
+            """,
+            (username, SERVER_ID),
+        ).fetchall()
 
-    user_messages = []
-    updated = False
+        for row in rows:
+            recalculated_checksum = hashlib.md5((row[3] or "").encode()).hexdigest()
+            if row[7] != recalculated_checksum:
+                return jsonify({"error": "Message corrupted", "message_id": row[0]}), 400
 
-    for message in messages:
-        if message.get("receiver") == username:
-            recalculated_checksum = hashlib.md5(message.get("content", "").encode()).hexdigest()
-            if message.get("checksum") != recalculated_checksum:
-                return jsonify({"error": "Message corrupted", "message_id": message.get("id")}), 400
+        connection.execute(
+            """
+            UPDATE messages
+            SET status='READ', timestamp_read=CURRENT_TIMESTAMP
+            WHERE receiver = ? AND server_id = ? AND status='UNREAD'
+            """,
+            (username, SERVER_ID),
+        )
+        connection.commit()
 
-            if message.get("status") == "UNREAD":
-                message["status"] = "READ"
-                message["timestamp_read"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                updated = True
-            user_messages.append(message)
+        updated_rows = connection.execute(
+            """
+            SELECT id, sender, receiver, content, status, timestamp_sent, timestamp_read, checksum, server_id
+            FROM messages
+            WHERE receiver = ? AND server_id = ?
+            ORDER BY timestamp_sent DESC
+            """,
+            (username, SERVER_ID),
+        ).fetchall()
 
-    if updated:
-        DATA_FILE.write_text(json.dumps(messages, indent=2), encoding="utf-8")
+    user_messages = [
+        {
+            "id": row[0],
+            "sender": row[1],
+            "receiver": row[2],
+            "content": row[3],
+            "status": row[4],
+            "timestamp_sent": row[5],
+            "timestamp_read": row[6],
+            "checksum": row[7],
+            "server_id": row[8],
+        }
+        for row in updated_rows
+    ]
 
     return jsonify(user_messages)
 
@@ -101,54 +150,64 @@ def edit_message(message_id):
     payload = request.get_json(silent=True) or {}
     new_content = payload.get("content", "")
 
-    ensure_data_file()
-    messages = json.loads(DATA_FILE.read_text(encoding="utf-8"))
+    checksum = hashlib.md5(new_content.encode()).hexdigest()
 
-    for message in messages:
-        if str(message.get("id")) == str(message_id):
-            if message.get("status") == "READ":
-                return jsonify({"error": "Message already read and locked"}), 400
+    with get_db_connection() as connection:
+        cursor = connection.execute(
+            """
+            UPDATE messages
+            SET content = ?, checksum = ?
+            WHERE id = ? AND status = 'UNREAD' AND server_id = ?
+            """,
+            (new_content, checksum, message_id, SERVER_ID),
+        )
+        connection.commit()
 
-            message["content"] = new_content
-            message["checksum"] = hashlib.md5(new_content.encode()).hexdigest()
-            DATA_FILE.write_text(json.dumps(messages, indent=2), encoding="utf-8")
-            return jsonify({"message": "Updated successfully", "id": message.get("id")})
+        if cursor.rowcount == 0:
+            return jsonify({"error": "Message already read and locked"}), 400
 
-    return jsonify({"error": "Message not found"}), 404
+    return jsonify({"message": "Updated successfully", "id": message_id})
 
 
 @app.delete("/delete/<message_id>")
 def delete_message(message_id):
-    ensure_data_file()
-    messages = json.loads(DATA_FILE.read_text(encoding="utf-8"))
+    with get_db_connection() as connection:
+        existing_row = connection.execute(
+            "SELECT status FROM messages WHERE id = ? AND server_id = ?",
+            (message_id, SERVER_ID),
+        ).fetchone()
 
-    for index, message in enumerate(messages):
-        if str(message.get("id")) == str(message_id):
-            if message.get("status") == "READ":
-                return jsonify({"error": "Message already read and locked"}), 400
+        if existing_row is None:
+            return jsonify({"error": "Message not found"}), 404
 
-            messages.pop(index)
-            DATA_FILE.write_text(json.dumps(messages, indent=2), encoding="utf-8")
-            return jsonify({"message": "Deleted successfully", "id": message_id})
+        if existing_row[0] == "READ":
+            return jsonify({"error": "Message already read and locked"}), 400
 
-    return jsonify({"error": "Message not found"}), 404
+        connection.execute(
+            "DELETE FROM messages WHERE id = ? AND server_id = ?",
+            (message_id, SERVER_ID),
+        )
+        connection.commit()
+
+    return jsonify({"message": "Deleted successfully", "id": message_id})
 
 
 @app.post("/corrupt/<message_id>")
 def corrupt_message(message_id):
-    ensure_data_file()
-    messages = json.loads(DATA_FILE.read_text(encoding="utf-8"))
+    with get_db_connection() as connection:
+        cursor = connection.execute(
+            "UPDATE messages SET content='corrupted data' WHERE id = ? AND server_id = ?",
+            (message_id, SERVER_ID),
+        )
+        connection.commit()
 
-    for message in messages:
-        if str(message.get("id")) == str(message_id):
-            message["content"] = f"{message.get('content', '')} [CORRUPTED]"
-            DATA_FILE.write_text(json.dumps(messages, indent=2), encoding="utf-8")
-            return jsonify({"message": "Message corrupted for testing", "id": message.get("id")})
+        if cursor.rowcount == 0:
+            return jsonify({"error": "Message not found"}), 404
 
-    return jsonify({"error": "Message not found"}), 404
+    return jsonify({"message": "Message corrupted for testing", "id": message_id})
 
 
 if __name__ == "__main__":
-    ensure_data_file()
+    init_db()
     port = int(os.getenv("PORT", 5001))
     app.run(host="0.0.0.0", port=5001, debug=False)

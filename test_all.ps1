@@ -1,15 +1,5 @@
 $ErrorActionPreference = "Stop"
 
-function Write-Utf8NoBom {
-    param(
-        [Parameter(Mandatory = $true)][string]$Path,
-        [Parameter(Mandatory = $true)][string]$Content
-    )
-
-    $encoding = New-Object System.Text.UTF8Encoding($false)
-    [System.IO.File]::WriteAllText($Path, $Content, $encoding)
-}
-
 function Get-Counts {
     $data = Invoke-RestMethod http://127.0.0.1:5000/dashboard-data
     return [pscustomobject]@{
@@ -36,6 +26,21 @@ function Send-Route {
     return Invoke-RestMethod -Method Post -Uri http://127.0.0.1:5000/route -ContentType "application/json" -Body $body
 }
 
+function Ensure-User {
+    param(
+        [Parameter(Mandatory = $true)][string]$Username
+    )
+
+    $registerBody = @{ username = $Username; password = "pw123" } | ConvertTo-Json -Compress
+    try {
+        Invoke-RestMethod -Method Post -Uri http://127.0.0.1:5000/register -ContentType "application/json" -Body $registerBody | Out-Null
+    } catch {
+        if (-not $_.ErrorDetails.Message -or $_.ErrorDetails.Message -notmatch "Username already exists") {
+            throw
+        }
+    }
+}
+
 $results = [ordered]@{
     "Round Robin" = "FAIL"
     "Failover" = "FAIL"
@@ -46,10 +51,11 @@ $results = [ordered]@{
 
 try {
     $root = Split-Path -Parent $MyInvocation.MyCommand.Path
+    $baseId = [int][double]::Parse((Get-Date -UFormat %s))
 
-    Write-Utf8NoBom -Path (Join-Path $root "data/server1_messages.json") -Content "[]"
-    Write-Utf8NoBom -Path (Join-Path $root "data/server2_messages.json") -Content "[]"
-    Write-Utf8NoBom -Path (Join-Path $root "data/server3_messages.json") -Content "[]"
+    Ensure-User -Username "RR"
+    Ensure-User -Username "FAIL"
+    Ensure-User -Username "RESTORE"
 
     Invoke-RestMethod -Method Post http://127.0.0.1:5000/restore/S1 | Out-Null
     Invoke-RestMethod -Method Post http://127.0.0.1:5000/restore/S2 | Out-Null
@@ -57,9 +63,9 @@ try {
 
     $before = Get-Counts
 
-    Send-Route -Id 1001 -Receiver "RR" -Content "rr-1" | Out-Null
-    Send-Route -Id 1002 -Receiver "RR" -Content "rr-2" | Out-Null
-    Send-Route -Id 1003 -Receiver "RR" -Content "rr-3" | Out-Null
+    Send-Route -Id ($baseId + 1) -Receiver "RR" -Content "rr-1" | Out-Null
+    Send-Route -Id ($baseId + 2) -Receiver "RR" -Content "rr-2" | Out-Null
+    Send-Route -Id ($baseId + 3) -Receiver "RR" -Content "rr-3" | Out-Null
 
     $afterRoundRobin = Get-Counts
     $d1 = $afterRoundRobin.S1 - $before.S1
@@ -72,9 +78,9 @@ try {
     Invoke-RestMethod -Method Post http://127.0.0.1:5000/fail/S2 | Out-Null
 
     $beforeFail = Get-Counts
-    Send-Route -Id 1004 -Receiver "FAIL" -Content "fail-1" | Out-Null
-    Send-Route -Id 1005 -Receiver "FAIL" -Content "fail-2" | Out-Null
-    Send-Route -Id 1006 -Receiver "FAIL" -Content "fail-3" | Out-Null
+    Send-Route -Id ($baseId + 4) -Receiver "FAIL" -Content "fail-1" | Out-Null
+    Send-Route -Id ($baseId + 5) -Receiver "FAIL" -Content "fail-2" | Out-Null
+    Send-Route -Id ($baseId + 6) -Receiver "FAIL" -Content "fail-3" | Out-Null
     $afterFail = Get-Counts
 
     $failTotal = ($afterFail.S1 + $afterFail.S2 + $afterFail.S3) - ($beforeFail.S1 + $beforeFail.S2 + $beforeFail.S3)
@@ -84,24 +90,25 @@ try {
     }
 
     $restoreState = Invoke-RestMethod -Method Post http://127.0.0.1:5000/restore/S2
-    $restoreRoute1 = Send-Route -Id 1007 -Receiver "RESTORE" -Content "restore-1"
-    $restoreRoute2 = Send-Route -Id 1008 -Receiver "RESTORE" -Content "restore-2"
+    $restoreRoute1 = Send-Route -Id ($baseId + 7) -Receiver "RESTORE" -Content "restore-1"
+    $restoreRoute2 = Send-Route -Id ($baseId + 8) -Receiver "RESTORE" -Content "restore-2"
 
     if ($restoreState.S2 -eq "UP" -and $restoreRoute1.routed_to -and $restoreRoute2.routed_to) {
         $results["Restore"] = "PASS"
     }
 
-    $directS1Body = @{ id = 2001; sender = "L1"; receiver = "LIFE"; content = "life-initial" } | ConvertTo-Json -Compress
+    $directS1Id = $baseId + 2001
+    $directS1Body = @{ id = $directS1Id; sender = "L1"; receiver = "LIFE"; content = "life-initial" } | ConvertTo-Json -Compress
     Invoke-RestMethod -Method Post -Uri http://127.0.0.1:5001/receive -ContentType "application/json" -Body $directS1Body | Out-Null
 
     $editBeforeBody = @{ content = "life-edited" } | ConvertTo-Json -Compress
-    $editBefore = Invoke-RestMethod -Method Put -Uri http://127.0.0.1:5001/edit/2001 -ContentType "application/json" -Body $editBeforeBody
+    $editBefore = Invoke-RestMethod -Method Put -Uri ("http://127.0.0.1:5001/edit/{0}" -f $directS1Id) -ContentType "application/json" -Body $editBeforeBody
 
     Invoke-RestMethod http://127.0.0.1:5001/messages/LIFE | Out-Null
 
     $editLocked = $false
     try {
-        Invoke-RestMethod -Method Put -Uri http://127.0.0.1:5001/edit/2001 -ContentType "application/json" -Body $editBeforeBody | Out-Null
+        Invoke-RestMethod -Method Put -Uri ("http://127.0.0.1:5001/edit/{0}" -f $directS1Id) -ContentType "application/json" -Body $editBeforeBody | Out-Null
     } catch {
         if ($_.ErrorDetails.Message -match "already read and locked") {
             $editLocked = $true
@@ -112,9 +119,10 @@ try {
         $results["Edit Lock"] = "PASS"
     }
 
-    $directS2Body = @{ id = 3001; sender = "C1"; receiver = "CORR"; content = "safe" } | ConvertTo-Json -Compress
+    $directS2Id = $baseId + 3001
+    $directS2Body = @{ id = $directS2Id; sender = "C1"; receiver = "CORR"; content = "safe" } | ConvertTo-Json -Compress
     Invoke-RestMethod -Method Post -Uri http://127.0.0.1:5002/receive -ContentType "application/json" -Body $directS2Body | Out-Null
-    Invoke-RestMethod -Method Post http://127.0.0.1:5002/corrupt/3001 | Out-Null
+    Invoke-RestMethod -Method Post ("http://127.0.0.1:5002/corrupt/{0}" -f $directS2Id) | Out-Null
 
     $corruptionCaught = $false
     try {
