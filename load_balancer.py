@@ -1,8 +1,7 @@
 from flask import Flask, jsonify, request, render_template, redirect, url_for
 import requests
 import os
-from pathlib import Path
-import json
+import psycopg2
 
 
 app = Flask(__name__)
@@ -24,26 +23,11 @@ server_urls = {
     "S3": os.getenv("S3_URL", "http://127.0.0.1:5003"),
 }
 
-USERS_FILE = Path("data/users.json")
+DATABASE_URL = os.getenv("DATABASE_URL")
 
 
-def ensure_users_file() -> None:
-    USERS_FILE.parent.mkdir(parents=True, exist_ok=True)
-    if not USERS_FILE.exists():
-        USERS_FILE.write_text(json.dumps([], indent=2), encoding="utf-8")
-
-
-def read_users() -> list:
-    ensure_users_file()
-    content = USERS_FILE.read_text(encoding="utf-8").strip()
-    if not content:
-        return []
-    return json.loads(content)
-
-
-def write_users(users: list) -> None:
-    ensure_users_file()
-    USERS_FILE.write_text(json.dumps(users, indent=2), encoding="utf-8")
+def get_db_connection():
+    return psycopg2.connect(DATABASE_URL)
 
 
 def add_log(message: str) -> None:
@@ -178,8 +162,14 @@ def route_request():
     payload = request.get_json(silent=True) or {}
     receiver = (payload.get("receiver") or "").strip()
 
-    users = read_users()
-    if not any(user.get("username") == receiver for user in users):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT 1 FROM users WHERE username = %s", (receiver,))
+    matched_receiver = cursor.fetchone()
+    cursor.close()
+    conn.close()
+
+    if matched_receiver is None:
         return jsonify({"error": "Receiver does not exist"}), 400
 
     try:
@@ -216,12 +206,23 @@ def register_user():
     if not username or not password:
         return jsonify({"error": "username and password are required"}), 400
 
-    users = read_users()
-    if any(user.get("username") == username for user in users):
-        return jsonify({"error": "Username already exists"}), 400
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        INSERT INTO users (username, password)
+        VALUES (%s, %s)
+        ON CONFLICT (username) DO NOTHING
+        """,
+        (username, password),
+    )
+    inserted = cursor.rowcount
+    conn.commit()
+    cursor.close()
+    conn.close()
 
-    users.append({"username": username, "password": password})
-    write_users(users)
+    if inserted == 0:
+        return jsonify({"error": "Username already exists"}), 400
 
     if request.is_json:
         return jsonify({"message": "registered", "username": username}), 201
@@ -235,17 +236,16 @@ def login_user():
     username = (payload.get("username") or "").strip()
     password = (payload.get("password") or "").strip()
 
-    users = read_users()
-    matched = next(
-        (
-            user
-            for user in users
-            if user.get("username") == username and user.get("password") == password
-        ),
-        None,
-    )
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT password FROM users WHERE username = %s", (username,))
+    row = cursor.fetchone()
+    cursor.close()
+    conn.close()
 
-    if matched is None:
+    matched = row is not None and row[0] == password
+
+    if not matched:
         if request.is_json:
             return jsonify({"error": "invalid credentials"}), 401
         return redirect(url_for("login_page"))
