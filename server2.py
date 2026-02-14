@@ -7,7 +7,7 @@ import psycopg2
 app = Flask(__name__)
 
 SERVER_ID = "S2"
-SERVER_PORT = 5002
+SERVER_PORT = os.getenv("PORT", "")
 DATABASE_URL = os.getenv("DATABASE_URL")
 
 
@@ -293,9 +293,3 @@ def get_stats():
             row = cursor.fetchone()
 
     return jsonify({"server_id": SERVER_ID, "message_count": int(row[0] if row else 0)})
-
-
-if __name__ == "__main__":
-    init_db()
-    port = int(os.environ.get("PORT", 8000))
-    app.run(host="0.0.0.0", port=port)

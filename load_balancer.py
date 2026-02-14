@@ -18,9 +18,9 @@ last_routed = None
 event_logs = []
 
 server_urls = {
-    "S1": os.getenv("S1_URL", "http://127.0.0.1:5001"),
-    "S2": os.getenv("S2_URL", "http://127.0.0.1:5002"),
-    "S3": os.getenv("S3_URL", "http://127.0.0.1:5003"),
+    "S1": os.getenv("S1_URL", ""),
+    "S2": os.getenv("S2_URL", ""),
+    "S3": os.getenv("S3_URL", ""),
 }
 
 DATABASE_URL = os.getenv("DATABASE_URL")
@@ -68,7 +68,7 @@ def health():
     return jsonify(
         {
             "message": "Load Balancer is running",
-            "port": 5000,
+            "port": os.getenv("PORT", ""),
         }
     )
 
@@ -375,8 +375,3 @@ def delete_message(message_id):
             continue
 
     return jsonify({"error": "Message not found"}), 404
-
-
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 8000))
-    app.run(host="0.0.0.0", port=port)
