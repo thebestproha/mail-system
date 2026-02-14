@@ -1,7 +1,6 @@
 from flask import Flask, jsonify, request
 import hashlib
 import os
-import psycopg2
 
 
 app = Flask(__name__)
@@ -130,8 +129,11 @@ def receive_message():
                     (message_id, sender, receiver, content, checksum, SERVER_ID),
                 )
             connection.commit()
-    except psycopg2.IntegrityError:
-        return jsonify({"error": "Message id already exists"}), 400
+    except Exception as error:
+        error_text = str(error).lower()
+        if "duplicate key" in error_text or "already exists" in error_text:
+            return jsonify({"error": "Message id already exists"}), 400
+        return jsonify({"error": "Database unavailable", "details": str(error)}), 503
 
     return jsonify(
         {
