@@ -25,9 +25,21 @@ db_initialized = False
 
 
 def get_db_connection():
-    if not DATABASE_URL:
-        raise RuntimeError("DATABASE_URL is not set")
-    return psycopg2.connect(DATABASE_URL, connect_timeout=10)
+    import os
+    import psycopg2
+
+    database_url = os.environ.get("DATABASE_URL")
+
+    if not database_url:
+        raise Exception("DATABASE_URL not set")
+
+    if "sslmode" not in database_url:
+        if "?" in database_url:
+            database_url += "&sslmode=require"
+        else:
+            database_url += "?sslmode=require"
+
+    return psycopg2.connect(database_url, connect_timeout=5)
 
 
 def init_db() -> None:
@@ -84,7 +96,15 @@ def home():
 
 @app.get("/health")
 def health():
-    return jsonify({"server": SERVER_ID, "status": "UP"})
+    try:
+        conn = get_db_connection()
+        conn.close()
+        return jsonify({"status": "ok"}), 200
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "reason": str(e)
+        }), 500
 
 
 @app.post("/receive")
