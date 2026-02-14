@@ -8,11 +8,26 @@ app = Flask(__name__)
 
 SERVER_ID = "S2"
 SERVER_PORT = os.getenv("PORT", "")
-DATABASE_URL = os.getenv("DATABASE_URL")
+
+
+def resolve_database_url() -> str:
+    database_url = (os.getenv("DATABASE_URL") or "").strip()
+    if not database_url:
+        return ""
+    if "sslmode=" in database_url:
+        return database_url
+    separator = "&" if "?" in database_url else "?"
+    return f"{database_url}{separator}sslmode=require"
+
+
+DATABASE_URL = resolve_database_url()
+db_initialized = False
 
 
 def get_db_connection():
-    return psycopg2.connect(DATABASE_URL)
+    if not DATABASE_URL:
+        raise RuntimeError("DATABASE_URL is not set")
+    return psycopg2.connect(DATABASE_URL, connect_timeout=10)
 
 
 def init_db() -> None:
@@ -37,7 +52,23 @@ def init_db() -> None:
         connection.commit()
 
 
-init_db()
+def ensure_db_initialized() -> None:
+    global db_initialized
+    if db_initialized:
+        return
+    init_db()
+    db_initialized = True
+
+
+@app.before_request
+def prepare_database():
+    if request.endpoint in {"home", "health"}:
+        return None
+    try:
+        ensure_db_initialized()
+    except Exception as error:
+        return jsonify({"error": "Database unavailable", "details": str(error)}), 503
+    return None
 
 
 @app.get("/")
