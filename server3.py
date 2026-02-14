@@ -297,4 +297,5 @@ def get_stats():
 
 if __name__ == "__main__":
     init_db()
-    app.run(host="0.0.0.0", port=5003, debug=False)
+    port = int(os.environ.get("PORT", 8000))
+    app.run(host="0.0.0.0", port=port)
