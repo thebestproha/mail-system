@@ -1,38 +1,38 @@
 from flask import Flask, jsonify, request
-from pathlib import Path
 import hashlib
 import os
-import sqlite3
+import psycopg2
 
 
 app = Flask(__name__)
 
 SERVER_ID = "S1"
 SERVER_PORT = 5001
-DB_PATH = Path("mail_system.db")
+DATABASE_URL = os.getenv("DATABASE_URL")
 
 
-def get_db_connection() -> sqlite3.Connection:
-    return sqlite3.connect(DB_PATH)
+def get_db_connection():
+    return psycopg2.connect(DATABASE_URL)
 
 
 def init_db() -> None:
     with get_db_connection() as connection:
-        connection.execute(
-            """
-            CREATE TABLE IF NOT EXISTS messages (
-            id INTEGER PRIMARY KEY,
-            sender TEXT NOT NULL,
-            receiver TEXT NOT NULL,
-            content TEXT NOT NULL,
-            status TEXT CHECK(status IN ('UNREAD','READ')) DEFAULT 'UNREAD',
-            timestamp_sent DATETIME DEFAULT CURRENT_TIMESTAMP,
-            timestamp_read DATETIME,
-            checksum TEXT NOT NULL,
-            server_id TEXT NOT NULL
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS messages (
+                id INTEGER PRIMARY KEY,
+                sender TEXT NOT NULL,
+                receiver TEXT NOT NULL,
+                content TEXT NOT NULL,
+                status TEXT DEFAULT 'UNREAD',
+                timestamp_sent TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                timestamp_read TIMESTAMP,
+                checksum TEXT NOT NULL,
+                server_id TEXT NOT NULL
+                )
+                """
             )
-            """
-        )
         connection.commit()
 
 
@@ -68,16 +68,17 @@ def receive_message():
 
     try:
         with get_db_connection() as connection:
-            connection.execute(
-                """
-                INSERT INTO messages
-                (id, sender, receiver, content, status, checksum, server_id)
-                VALUES (?, ?, ?, ?, 'UNREAD', ?, ?)
-                """,
-                (message_id, sender, receiver, content, checksum, SERVER_ID),
-            )
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    INSERT INTO messages
+                    (id, sender, receiver, content, status, checksum, server_id)
+                    VALUES (%s, %s, %s, %s, 'UNREAD', %s, %s)
+                    """,
+                    (message_id, sender, receiver, content, checksum, SERVER_ID),
+                )
             connection.commit()
-    except sqlite3.IntegrityError:
+    except psycopg2.IntegrityError:
         return jsonify({"error": "Message id already exists"}), 400
 
     return jsonify(
@@ -92,40 +93,45 @@ def receive_message():
 @app.get("/messages/<username>")
 def get_messages(username):
     with get_db_connection() as connection:
-        rows = connection.execute(
-            """
-            SELECT id, sender, receiver, content, status, timestamp_sent, timestamp_read, checksum, server_id
-            FROM messages
-            WHERE receiver = ? AND server_id = ?
-            ORDER BY timestamp_sent DESC
-            """,
-            (username, SERVER_ID),
-        ).fetchall()
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT id, sender, receiver, content, status, timestamp_sent, timestamp_read, checksum, server_id
+                FROM messages
+                WHERE receiver = %s AND server_id = %s
+                ORDER BY timestamp_sent DESC
+                """,
+                (username, SERVER_ID),
+            )
+            rows = cursor.fetchall()
 
         for row in rows:
             recalculated_checksum = hashlib.md5((row[3] or "").encode()).hexdigest()
             if row[7] != recalculated_checksum:
                 return jsonify({"error": "Message corrupted", "message_id": row[0]}), 400
 
-        connection.execute(
-            """
-            UPDATE messages
-            SET status='READ', timestamp_read=CURRENT_TIMESTAMP
-            WHERE receiver = ? AND server_id = ? AND status='UNREAD'
-            """,
-            (username, SERVER_ID),
-        )
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE messages
+                SET status='READ', timestamp_read=CURRENT_TIMESTAMP
+                WHERE receiver = %s AND server_id = %s AND status='UNREAD'
+                """,
+                (username, SERVER_ID),
+            )
         connection.commit()
 
-        updated_rows = connection.execute(
-            """
-            SELECT id, sender, receiver, content, status, timestamp_sent, timestamp_read, checksum, server_id
-            FROM messages
-            WHERE receiver = ? AND server_id = ?
-            ORDER BY timestamp_sent DESC
-            """,
-            (username, SERVER_ID),
-        ).fetchall()
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT id, sender, receiver, content, status, timestamp_sent, timestamp_read, checksum, server_id
+                FROM messages
+                WHERE receiver = %s AND server_id = %s
+                ORDER BY timestamp_sent DESC
+                """,
+                (username, SERVER_ID),
+            )
+            updated_rows = cursor.fetchall()
 
     user_messages = [
         {
@@ -153,17 +159,19 @@ def edit_message(message_id):
     checksum = hashlib.md5(new_content.encode()).hexdigest()
 
     with get_db_connection() as connection:
-        cursor = connection.execute(
-            """
-            UPDATE messages
-            SET content = ?, checksum = ?
-            WHERE id = ? AND status = 'UNREAD' AND server_id = ?
-            """,
-            (new_content, checksum, message_id, SERVER_ID),
-        )
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE messages
+                SET content = %s, checksum = %s
+                WHERE id = %s AND status = 'UNREAD' AND server_id = %s
+                """,
+                (new_content, checksum, message_id, SERVER_ID),
+            )
+            updated_count = cursor.rowcount
         connection.commit()
 
-        if cursor.rowcount == 0:
+        if updated_count == 0:
             return jsonify({"error": "Message already read and locked"}), 400
 
     return jsonify({"message": "Updated successfully", "id": message_id})
@@ -172,10 +180,12 @@ def edit_message(message_id):
 @app.delete("/delete/<message_id>")
 def delete_message(message_id):
     with get_db_connection() as connection:
-        existing_row = connection.execute(
-            "SELECT status FROM messages WHERE id = ? AND server_id = ?",
-            (message_id, SERVER_ID),
-        ).fetchone()
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT status FROM messages WHERE id = %s AND server_id = %s",
+                (message_id, SERVER_ID),
+            )
+            existing_row = cursor.fetchone()
 
         if existing_row is None:
             return jsonify({"error": "Message not found"}), 404
@@ -183,10 +193,11 @@ def delete_message(message_id):
         if existing_row[0] == "READ":
             return jsonify({"error": "Message already read and locked"}), 400
 
-        connection.execute(
-            "DELETE FROM messages WHERE id = ? AND server_id = ?",
-            (message_id, SERVER_ID),
-        )
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "DELETE FROM messages WHERE id = %s AND server_id = %s",
+                (message_id, SERVER_ID),
+            )
         connection.commit()
 
     return jsonify({"message": "Deleted successfully", "id": message_id})
@@ -195,13 +206,15 @@ def delete_message(message_id):
 @app.post("/corrupt/<message_id>")
 def corrupt_message(message_id):
     with get_db_connection() as connection:
-        cursor = connection.execute(
-            "UPDATE messages SET content='corrupted data' WHERE id = ? AND server_id = ?",
-            (message_id, SERVER_ID),
-        )
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "UPDATE messages SET content='corrupted data' WHERE id = %s AND server_id = %s",
+                (message_id, SERVER_ID),
+            )
+            updated_count = cursor.rowcount
         connection.commit()
 
-        if cursor.rowcount == 0:
+        if updated_count == 0:
             return jsonify({"error": "Message not found"}), 404
 
     return jsonify({"message": "Message corrupted for testing", "id": message_id})
