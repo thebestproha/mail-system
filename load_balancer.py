@@ -17,9 +17,9 @@ current_index = 0
 last_routed = None
 event_logs = []
 
-S1_URL = "http://127.0.0.1:5001"
-S2_URL = "http://127.0.0.1:5002"
-S3_URL = "http://127.0.0.1:5003"
+S1_URL = os.getenv("S1_URL", "http://127.0.0.1:5001")
+S2_URL = os.getenv("S2_URL", "http://127.0.0.1:5002")
+S3_URL = os.getenv("S3_URL", "http://127.0.0.1:5003")
 
 server_urls = {
     "S1": S1_URL,
@@ -30,8 +30,31 @@ server_urls = {
 DATABASE_URL = os.getenv("DATABASE_URL")
 
 
+class DatabaseConnectionError(Exception):
+    pass
+
+
 def get_db_connection():
-    return psycopg2.connect(DATABASE_URL)
+    database_url = (os.environ.get("DATABASE_URL") or "").strip()
+
+    if not database_url:
+        raise DatabaseConnectionError("DATABASE_URL not set")
+
+    if "sslmode" not in database_url:
+        if "?" in database_url:
+            database_url += "&sslmode=require"
+        else:
+            database_url += "?sslmode=require"
+
+    try:
+        return psycopg2.connect(database_url, connect_timeout=3)
+    except Exception as error:
+        raise DatabaseConnectionError(str(error)) from error
+
+
+@app.errorhandler(DatabaseConnectionError)
+def handle_db_connection_error(error):
+    return jsonify({"error": "Database unavailable", "details": str(error)}), 503
 
 
 def add_log(message: str) -> None:
@@ -109,7 +132,7 @@ def dashboard_data():
 
     for server_id, server_url in server_urls.items():
         try:
-            response = requests.get(f"{server_url}/stats", timeout=5)
+            response = requests.get(f"{server_url}/stats", timeout=1)
             if response.status_code == 200:
                 data = response.json()
                 server_load[server_id] = int(data.get("message_count", 0))
@@ -183,7 +206,7 @@ def route_request():
 
     message_id = payload.get("id")
     try:
-        response = requests.post(f"{server_urls[server_id]}/receive", json=payload, timeout=5)
+        response = requests.post(f"{server_urls[server_id]}/receive", json=payload, timeout=1)
         response.raise_for_status()
     except requests.RequestException as error:
         return jsonify({"error": str(error)}), 502
@@ -265,7 +288,7 @@ def get_inbox(username):
 
     for _, server_url in server_urls.items():
         try:
-            response = requests.get(f"{server_url}/messages/{username}", timeout=5)
+            response = requests.get(f"{server_url}/messages/{username}", timeout=1)
             if response.status_code == 200:
                 server_messages = response.json()
                 if isinstance(server_messages, list):
@@ -291,7 +314,7 @@ def get_sent_messages(username):
     sent_messages = []
     for _, server_url in server_urls.items():
         try:
-            response = requests.get(f"{server_url}/sent/{username}", timeout=5)
+            response = requests.get(f"{server_url}/sent/{username}", timeout=1)
             if response.status_code == 200:
                 server_messages = response.json()
                 if isinstance(server_messages, list):
@@ -309,7 +332,7 @@ def clear_sent_history(username):
     hidden_count = 0
     for _, server_url in server_urls.items():
         try:
-            response = requests.delete(f"{server_url}/sent-history/{username}", timeout=5)
+            response = requests.delete(f"{server_url}/sent-history/{username}", timeout=1)
             if response.status_code == 200:
                 data = response.json()
                 hidden_count += int(data.get("deleted", 0))
@@ -325,7 +348,7 @@ def clear_inbox_history(username):
     hidden_count = 0
     for _, server_url in server_urls.items():
         try:
-            response = requests.delete(f"{server_url}/inbox-history/{username}", timeout=5)
+            response = requests.delete(f"{server_url}/inbox-history/{username}", timeout=1)
             if response.status_code == 200:
                 data = response.json()
                 hidden_count += int(data.get("deleted", 0))
@@ -346,7 +369,7 @@ def edit_message(message_id):
             response = requests.put(
                 f"{server_url}/edit/{message_id}",
                 json={"content": content},
-                timeout=5,
+                timeout=1,
             )
 
             if response.status_code == 200:
@@ -365,7 +388,7 @@ def edit_message(message_id):
 def delete_message(message_id):
     for server_id, server_url in server_urls.items():
         try:
-            response = requests.delete(f"{server_url}/delete/{message_id}", timeout=5)
+            response = requests.delete(f"{server_url}/delete/{message_id}", timeout=1)
 
             if response.status_code == 200:
                 add_log(f"Message {message_id} deleted on {server_id}")
