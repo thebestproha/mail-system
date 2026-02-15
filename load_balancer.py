@@ -1,8 +1,7 @@
 from flask import Flask, jsonify, request, render_template, redirect, url_for
 import requests
-from pathlib import Path
 import os
-import sqlite3
+import psycopg2
 
 
 app = Flask(__name__)
@@ -27,79 +26,77 @@ server_urls = {
     "S3": S3_URL,
 }
 
-DB_PATH = Path("mail_system.db")
+def get_db_connection():
+    database_url = os.getenv("DATABASE_URL")
+    if not database_url:
+        raise Exception("DATABASE_URL not set")
 
+    if "sslmode" not in database_url:
+        if "?" in database_url:
+            database_url += "&sslmode=require"
+        else:
+            database_url += "?sslmode=require"
 
-def get_db_connection() -> sqlite3.Connection:
-    return sqlite3.connect(DB_PATH)
+    return psycopg2.connect(database_url)
 
 
 def init_db() -> None:
     with get_db_connection() as connection:
-        connection.execute(
+        with connection.cursor() as cursor:
+            cursor.execute(
             """
             CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             username TEXT UNIQUE NOT NULL,
             password TEXT NOT NULL,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
             """
         )
-        connection.execute(
+            cursor.execute(
             """
             CREATE TABLE IF NOT EXISTS messages (
-            id INTEGER PRIMARY KEY,
+            id BIGINT PRIMARY KEY,
             sender TEXT NOT NULL,
             receiver TEXT NOT NULL,
             content TEXT NOT NULL,
-            status TEXT CHECK(status IN ('UNREAD','READ')) DEFAULT 'UNREAD',
-            timestamp_sent DATETIME DEFAULT CURRENT_TIMESTAMP,
-            timestamp_read DATETIME,
+            status TEXT DEFAULT 'UNREAD',
+            timestamp_sent TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            timestamp_read TIMESTAMP,
             checksum TEXT NOT NULL,
             server_id TEXT NOT NULL,
-            hidden_for_sender INTEGER DEFAULT 0,
-            hidden_for_receiver INTEGER DEFAULT 0
+            hidden_for_sender BOOLEAN DEFAULT FALSE,
+            hidden_for_receiver BOOLEAN DEFAULT FALSE
             )
             """
         )
-        try:
-            connection.execute(
-                "ALTER TABLE messages ADD COLUMN hidden_for_sender INTEGER DEFAULT 0"
+            cursor.execute(
+                "ALTER TABLE messages ADD COLUMN IF NOT EXISTS hidden_for_sender BOOLEAN DEFAULT FALSE"
             )
-        except sqlite3.OperationalError as error:
-            if "duplicate column name" not in str(error).lower():
-                raise
-
-        try:
-            connection.execute(
-                "ALTER TABLE messages ADD COLUMN hidden_for_receiver INTEGER DEFAULT 0"
+            cursor.execute(
+                "ALTER TABLE messages ADD COLUMN IF NOT EXISTS hidden_for_receiver BOOLEAN DEFAULT FALSE"
             )
-        except sqlite3.OperationalError as error:
-            if "duplicate column name" not in str(error).lower():
-                raise
-
-        connection.execute(
+            cursor.execute(
             """
             CREATE TABLE IF NOT EXISTS event_logs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             event TEXT NOT NULL,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
             """
         )
-        connection.execute(
-            "CREATE INDEX IF NOT EXISTS idx_messages_receiver ON messages(receiver)"
-        )
-        connection.execute(
-            "CREATE INDEX IF NOT EXISTS idx_messages_sender ON messages(sender)"
-        )
-        connection.execute(
-            "CREATE INDEX IF NOT EXISTS idx_messages_server ON messages(server_id)"
-        )
-        connection.execute(
-            "CREATE INDEX IF NOT EXISTS idx_messages_status ON messages(status)"
-        )
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_messages_receiver ON messages(receiver)"
+            )
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_messages_sender ON messages(sender)"
+            )
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_messages_server ON messages(server_id)"
+            )
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_messages_status ON messages(status)"
+            )
         connection.commit()
 
 
@@ -108,7 +105,8 @@ init_db()
 
 def add_log(message: str) -> None:
     with get_db_connection() as connection:
-        connection.execute("INSERT INTO event_logs (event) VALUES (?)", (message,))
+        with connection.cursor() as cursor:
+            cursor.execute("INSERT INTO event_logs (event) VALUES (%s)", (message,))
         connection.commit()
 
 
@@ -178,13 +176,17 @@ def get_servers():
 @app.get("/dashboard-data")
 def dashboard_data():
     with get_db_connection() as connection:
-        s1_row = connection.execute("SELECT COUNT(*) FROM messages WHERE server_id='S1'").fetchone()
-        s2_row = connection.execute("SELECT COUNT(*) FROM messages WHERE server_id='S2'").fetchone()
-        s3_row = connection.execute("SELECT COUNT(*) FROM messages WHERE server_id='S3'").fetchone()
-        total_row = connection.execute("SELECT COUNT(*) FROM messages").fetchone()
-        log_rows = connection.execute(
-            "SELECT event FROM event_logs ORDER BY id DESC LIMIT 20"
-        ).fetchall()
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT COUNT(*) FROM messages WHERE server_id='S1'")
+            s1_row = cursor.fetchone()
+            cursor.execute("SELECT COUNT(*) FROM messages WHERE server_id='S2'")
+            s2_row = cursor.fetchone()
+            cursor.execute("SELECT COUNT(*) FROM messages WHERE server_id='S3'")
+            s3_row = cursor.fetchone()
+            cursor.execute("SELECT COUNT(*) FROM messages")
+            total_row = cursor.fetchone()
+            cursor.execute("SELECT event FROM event_logs ORDER BY id DESC LIMIT 20")
+            log_rows = cursor.fetchall()
 
     server_load = {
         "S1": int(s1_row[0] if s1_row else 0),
@@ -243,10 +245,9 @@ def route_request():
     receiver = (payload.get("receiver") or "").strip()
 
     with get_db_connection() as connection:
-        matched_receiver = connection.execute(
-            "SELECT 1 FROM users WHERE username = ?",
-            (receiver,),
-        ).fetchone()
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT 1 FROM users WHERE username = %s", (receiver,))
+            matched_receiver = cursor.fetchone()
 
     if matched_receiver is None:
         return jsonify({"error": "Receiver does not exist"}), 400
@@ -287,12 +288,13 @@ def register_user():
 
     try:
         with get_db_connection() as connection:
-            connection.execute(
-                "INSERT INTO users (username, password) VALUES (?, ?)",
-                (username, password),
-            )
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "INSERT INTO users (username, password) VALUES (%s, %s)",
+                    (username, password),
+                )
             connection.commit()
-    except sqlite3.IntegrityError:
+    except psycopg2.IntegrityError:
         return jsonify({"error": "Username already exists"}), 400
 
     if request.is_json:
@@ -308,10 +310,12 @@ def login_user():
     password = (payload.get("password") or "").strip()
 
     with get_db_connection() as connection:
-        matched = connection.execute(
-            "SELECT id FROM users WHERE username = ? AND password = ?",
-            (username, password),
-        ).fetchone()
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT id FROM users WHERE username = %s AND password = %s",
+                (username, password),
+            )
+            matched = cursor.fetchone()
 
     if matched is None:
         if request.is_json:
@@ -355,15 +359,17 @@ def get_inbox(username):
 @app.get("/sent/<username>")
 def get_sent_messages(username):
     with get_db_connection() as connection:
-        rows = connection.execute(
-            """
-            SELECT id, sender, receiver, content, status, timestamp_sent, timestamp_read, checksum, server_id
-            FROM messages
-            WHERE sender = ? AND hidden_for_sender = 0
-            ORDER BY timestamp_sent DESC
-            """,
-            (username,),
-        ).fetchall()
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT id, sender, receiver, content, status, timestamp_sent, timestamp_read, checksum, server_id
+                FROM messages
+                WHERE sender = %s AND hidden_for_sender = FALSE
+                ORDER BY timestamp_sent DESC
+                """,
+                (username,),
+            )
+            rows = cursor.fetchall()
 
     sent_messages = [
         {
@@ -386,16 +392,17 @@ def get_sent_messages(username):
 @app.delete("/sent-history/<username>")
 def clear_sent_history(username):
     with get_db_connection() as connection:
-        cursor = connection.execute(
-            """
-            UPDATE messages
-            SET hidden_for_sender = 1
-            WHERE sender = ?
-            """,
-            (username,),
-        )
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE messages
+                SET hidden_for_sender = TRUE
+                WHERE sender = %s
+                """,
+                (username,),
+            )
+            hidden_count = cursor.rowcount if cursor.rowcount is not None else 0
         connection.commit()
-        hidden_count = cursor.rowcount if cursor.rowcount is not None else 0
 
     add_log(f"Cleared sent history for {username} ({hidden_count} messages hidden)")
     return jsonify({"message": "Sent history cleared", "deleted": hidden_count})
@@ -404,16 +411,17 @@ def clear_sent_history(username):
 @app.delete("/inbox-history/<username>")
 def clear_inbox_history(username):
     with get_db_connection() as connection:
-        cursor = connection.execute(
-            """
-            UPDATE messages
-            SET hidden_for_receiver = 1
-            WHERE receiver = ?
-            """,
-            (username,),
-        )
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE messages
+                SET hidden_for_receiver = TRUE
+                WHERE receiver = %s
+                """,
+                (username,),
+            )
+            hidden_count = cursor.rowcount if cursor.rowcount is not None else 0
         connection.commit()
-        hidden_count = cursor.rowcount if cursor.rowcount is not None else 0
 
     add_log(f"Cleared inbox history for {username} ({hidden_count} messages hidden)")
     return jsonify({"message": "Inbox history cleared", "deleted": hidden_count})
