@@ -2,6 +2,7 @@ from flask import Flask, jsonify, request, render_template, redirect, url_for
 import requests
 import os
 import psycopg2
+from psycopg2.pool import SimpleConnectionPool
 
 
 app = Flask(__name__)
@@ -26,22 +27,27 @@ server_urls = {
     "S3": S3_URL,
 }
 
+DATABASE_URL = os.getenv("DATABASE_URL")
+db_pool = SimpleConnectionPool(
+    minconn=1,
+    maxconn=10,
+    dsn=DATABASE_URL,
+)
+
+
+class DatabaseConnectionError(Exception):
+    pass
+
 def get_db_connection():
-    database_url = os.getenv("DATABASE_URL")
-    if not database_url:
-        raise Exception("DATABASE_URL not set")
-
-    if "sslmode" not in database_url:
-        if "?" in database_url:
-            database_url += "&sslmode=require"
-        else:
-            database_url += "?sslmode=require"
-
-    return psycopg2.connect(database_url)
+    try:
+        return db_pool.getconn()
+    except Exception as error:
+        raise DatabaseConnectionError(str(error))
 
 
 def init_db() -> None:
-    with get_db_connection() as connection:
+    connection = get_db_connection()
+    try:
         with connection.cursor() as cursor:
             cursor.execute(
             """
@@ -98,16 +104,21 @@ def init_db() -> None:
                 "CREATE INDEX IF NOT EXISTS idx_messages_status ON messages(status)"
             )
         connection.commit()
+    finally:
+        db_pool.putconn(connection)
 
 
 init_db()
 
 
 def add_log(message: str) -> None:
-    with get_db_connection() as connection:
+    connection = get_db_connection()
+    try:
         with connection.cursor() as cursor:
             cursor.execute("INSERT INTO event_logs (event) VALUES (%s)", (message,))
         connection.commit()
+    finally:
+        db_pool.putconn(connection)
 
 
 def get_next_server():
@@ -175,7 +186,8 @@ def get_servers():
 
 @app.get("/dashboard-data")
 def dashboard_data():
-    with get_db_connection() as connection:
+    connection = get_db_connection()
+    try:
         with connection.cursor() as cursor:
             cursor.execute("SELECT COUNT(*) FROM messages WHERE server_id='S1'")
             s1_row = cursor.fetchone()
@@ -187,6 +199,8 @@ def dashboard_data():
             total_row = cursor.fetchone()
             cursor.execute("SELECT event FROM event_logs ORDER BY id DESC LIMIT 20")
             log_rows = cursor.fetchall()
+    finally:
+        db_pool.putconn(connection)
 
     server_load = {
         "S1": int(s1_row[0] if s1_row else 0),
@@ -244,10 +258,13 @@ def route_request():
     payload = request.get_json(silent=True) or {}
     receiver = (payload.get("receiver") or "").strip()
 
-    with get_db_connection() as connection:
+    connection = get_db_connection()
+    try:
         with connection.cursor() as cursor:
             cursor.execute("SELECT 1 FROM users WHERE username = %s", (receiver,))
             matched_receiver = cursor.fetchone()
+    finally:
+        db_pool.putconn(connection)
 
     if matched_receiver is None:
         return jsonify({"error": "Receiver does not exist"}), 400
@@ -286,16 +303,19 @@ def register_user():
     if not username or not password:
         return jsonify({"error": "username and password are required"}), 400
 
+    connection = get_db_connection()
     try:
-        with get_db_connection() as connection:
-            with connection.cursor() as cursor:
-                cursor.execute(
-                    "INSERT INTO users (username, password) VALUES (%s, %s)",
-                    (username, password),
-                )
-            connection.commit()
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "INSERT INTO users (username, password) VALUES (%s, %s)",
+                (username, password),
+            )
+        connection.commit()
     except psycopg2.IntegrityError:
+        connection.rollback()
         return jsonify({"error": "Username already exists"}), 400
+    finally:
+        db_pool.putconn(connection)
 
     if request.is_json:
         return jsonify({"message": "registered", "username": username}), 201
@@ -309,13 +329,16 @@ def login_user():
     username = (payload.get("username") or "").strip()
     password = (payload.get("password") or "").strip()
 
-    with get_db_connection() as connection:
+    connection = get_db_connection()
+    try:
         with connection.cursor() as cursor:
             cursor.execute(
                 "SELECT id FROM users WHERE username = %s AND password = %s",
                 (username, password),
             )
             matched = cursor.fetchone()
+    finally:
+        db_pool.putconn(connection)
 
     if matched is None:
         if request.is_json:
@@ -358,7 +381,8 @@ def get_inbox(username):
 
 @app.get("/sent/<username>")
 def get_sent_messages(username):
-    with get_db_connection() as connection:
+    connection = get_db_connection()
+    try:
         with connection.cursor() as cursor:
             cursor.execute(
                 """
@@ -370,6 +394,8 @@ def get_sent_messages(username):
                 (username,),
             )
             rows = cursor.fetchall()
+    finally:
+        db_pool.putconn(connection)
 
     sent_messages = [
         {
@@ -391,7 +417,8 @@ def get_sent_messages(username):
 
 @app.delete("/sent-history/<username>")
 def clear_sent_history(username):
-    with get_db_connection() as connection:
+    connection = get_db_connection()
+    try:
         with connection.cursor() as cursor:
             cursor.execute(
                 """
@@ -403,6 +430,8 @@ def clear_sent_history(username):
             )
             hidden_count = cursor.rowcount if cursor.rowcount is not None else 0
         connection.commit()
+    finally:
+        db_pool.putconn(connection)
 
     add_log(f"Cleared sent history for {username} ({hidden_count} messages hidden)")
     return jsonify({"message": "Sent history cleared", "deleted": hidden_count})
@@ -410,7 +439,8 @@ def clear_sent_history(username):
 
 @app.delete("/inbox-history/<username>")
 def clear_inbox_history(username):
-    with get_db_connection() as connection:
+    connection = get_db_connection()
+    try:
         with connection.cursor() as cursor:
             cursor.execute(
                 """
@@ -422,6 +452,8 @@ def clear_inbox_history(username):
             )
             hidden_count = cursor.rowcount if cursor.rowcount is not None else 0
         connection.commit()
+    finally:
+        db_pool.putconn(connection)
 
     add_log(f"Cleared inbox history for {username} ({hidden_count} messages hidden)")
     return jsonify({"message": "Inbox history cleared", "deleted": hidden_count})

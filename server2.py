@@ -2,6 +2,7 @@ from flask import Flask, jsonify, request
 import hashlib
 import os
 import psycopg2
+from psycopg2.pool import SimpleConnectionPool
 
 
 app = Flask(__name__)
@@ -9,23 +10,28 @@ app = Flask(__name__)
 SERVER_ID = "S2"
 SERVER_PORT = 5002
 
+DATABASE_URL = os.getenv("DATABASE_URL")
+db_pool = SimpleConnectionPool(
+    minconn=1,
+    maxconn=10,
+    dsn=DATABASE_URL,
+)
+
+
+class DatabaseConnectionError(Exception):
+    pass
+
 
 def get_db_connection():
-    database_url = os.getenv("DATABASE_URL")
-    if not database_url:
-        raise Exception("DATABASE_URL not set")
-
-    if "sslmode" not in database_url:
-        if "?" in database_url:
-            database_url += "&sslmode=require"
-        else:
-            database_url += "?sslmode=require"
-
-    return psycopg2.connect(database_url)
+    try:
+        return db_pool.getconn()
+    except Exception as error:
+        raise DatabaseConnectionError(str(error))
 
 
 def init_db() -> None:
-    with get_db_connection() as connection:
+    connection = get_db_connection()
+    try:
         with connection.cursor() as cursor:
             cursor.execute(
             """
@@ -52,6 +58,8 @@ def init_db() -> None:
             )
 
         connection.commit()
+    finally:
+        db_pool.putconn(connection)
 
 
 init_db()
@@ -84,10 +92,10 @@ def receive_message():
 
     checksum = hashlib.md5(content.encode()).hexdigest()
 
+    connection = get_db_connection()
     try:
-        with get_db_connection() as connection:
-            with connection.cursor() as cursor:
-                cursor.execute(
+        with connection.cursor() as cursor:
+            cursor.execute(
                 """
                 INSERT INTO messages
                 (id, sender, receiver, content, status, checksum, server_id)
@@ -95,9 +103,12 @@ def receive_message():
                 """,
                 (message_id, sender, receiver, content, checksum, SERVER_ID),
             )
-            connection.commit()
+        connection.commit()
     except psycopg2.IntegrityError:
+        connection.rollback()
         return jsonify({"error": "Message id already exists"}), 400
+    finally:
+        db_pool.putconn(connection)
 
     return jsonify(
         {
@@ -110,7 +121,8 @@ def receive_message():
 
 @app.get("/messages/<username>")
 def get_messages(username):
-    with get_db_connection() as connection:
+    connection = get_db_connection()
+    try:
         with connection.cursor() as cursor:
             cursor.execute(
                 """
@@ -150,6 +162,8 @@ def get_messages(username):
                 (username, SERVER_ID),
             )
             updated_rows = cursor.fetchall()
+    finally:
+        db_pool.putconn(connection)
 
     user_messages = [
         {
@@ -176,7 +190,8 @@ def edit_message(message_id):
 
     checksum = hashlib.md5(new_content.encode()).hexdigest()
 
-    with get_db_connection() as connection:
+    connection = get_db_connection()
+    try:
         with connection.cursor() as cursor:
             cursor.execute(
                 "SELECT content, status FROM messages WHERE id = %s AND server_id = %s",
@@ -203,13 +218,16 @@ def edit_message(message_id):
                 (new_content, checksum, message_id, SERVER_ID),
             )
         connection.commit()
+    finally:
+        db_pool.putconn(connection)
 
     return jsonify({"message": "Updated successfully", "id": message_id})
 
 
 @app.delete("/delete/<message_id>")
 def delete_message(message_id):
-    with get_db_connection() as connection:
+    connection = get_db_connection()
+    try:
         with connection.cursor() as cursor:
             cursor.execute(
                 "SELECT status FROM messages WHERE id = %s AND server_id = %s",
@@ -229,13 +247,16 @@ def delete_message(message_id):
                 (message_id, SERVER_ID),
             )
         connection.commit()
+    finally:
+        db_pool.putconn(connection)
 
     return jsonify({"message": "Deleted successfully", "id": message_id})
 
 
 @app.post("/corrupt/<message_id>")
 def corrupt_message(message_id):
-    with get_db_connection() as connection:
+    connection = get_db_connection()
+    try:
         with connection.cursor() as cursor:
             cursor.execute(
                 "UPDATE messages SET content='corrupted data' WHERE id = %s AND server_id = %s",
@@ -246,6 +267,8 @@ def corrupt_message(message_id):
 
         if updated_count == 0:
             return jsonify({"error": "Message not found"}), 404
+    finally:
+        db_pool.putconn(connection)
 
     return jsonify({"message": "Message corrupted for testing", "id": message_id})
 
