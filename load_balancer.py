@@ -354,42 +354,52 @@ def login_user():
 
 @app.get("/inbox/<username>")
 def get_inbox(username):
-    merged_messages = []
-    seen_ids = set()
+    connection = get_db_connection()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT id, sender, receiver, content, status, timestamp_sent, timestamp_read, checksum, server_id
+                FROM messages
+                WHERE receiver = %s
+                AND hidden_for_receiver = FALSE
+                ORDER BY timestamp_sent DESC
+                """,
+                (username,),
+            )
+            rows = cursor.fetchall()
 
-    responses_by_server = {}
-    with ThreadPoolExecutor(max_workers=3) as executor:
-        futures = {
-            executor.submit(requests.get, f"{server_url}/messages/{username}", timeout=1): server_id
-            for server_id, server_url in server_urls.items()
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE messages
+                SET status='READ', timestamp_read=CURRENT_TIMESTAMP
+                WHERE receiver=%s
+                AND status='UNREAD'
+                AND hidden_for_receiver = FALSE
+                """,
+                (username,),
+            )
+        connection.commit()
+    finally:
+        db_pool.putconn(connection)
+
+    inbox_messages = [
+        {
+            "id": row[0],
+            "sender": row[1],
+            "receiver": row[2],
+            "content": row[3],
+            "status": row[4],
+            "timestamp_sent": row[5],
+            "timestamp_read": row[6],
+            "checksum": row[7],
+            "server_id": row[8],
         }
-        for future in as_completed(futures):
-            server_id = futures[future]
-            try:
-                responses_by_server[server_id] = future.result()
-            except requests.RequestException:
-                continue
+        for row in rows
+    ]
 
-    for server_id in server_urls:
-        response = responses_by_server.get(server_id)
-        if response is None:
-            continue
-        if response.status_code == 200:
-            server_messages = response.json()
-            if isinstance(server_messages, list):
-                visible_messages = [
-                    message
-                    for message in server_messages
-                ]
-                for message in visible_messages:
-                    message_id = message.get("id")
-                    if message_id in seen_ids:
-                        continue
-                    seen_ids.add(message_id)
-                    merged_messages.append(message)
-
-    merged_messages.sort(key=lambda item: item.get("timestamp_sent", ""), reverse=True)
-    return jsonify(merged_messages)
+    return jsonify(inbox_messages)
 
 
 @app.get("/sent/<username>")
