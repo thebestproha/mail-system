@@ -57,10 +57,28 @@ def init_db() -> None:
             timestamp_sent DATETIME DEFAULT CURRENT_TIMESTAMP,
             timestamp_read DATETIME,
             checksum TEXT NOT NULL,
-            server_id TEXT NOT NULL
+            server_id TEXT NOT NULL,
+            hidden_for_sender INTEGER DEFAULT 0,
+            hidden_for_receiver INTEGER DEFAULT 0
             )
             """
         )
+        try:
+            connection.execute(
+                "ALTER TABLE messages ADD COLUMN hidden_for_sender INTEGER DEFAULT 0"
+            )
+        except sqlite3.OperationalError as error:
+            if "duplicate column name" not in str(error).lower():
+                raise
+
+        try:
+            connection.execute(
+                "ALTER TABLE messages ADD COLUMN hidden_for_receiver INTEGER DEFAULT 0"
+            )
+        except sqlite3.OperationalError as error:
+            if "duplicate column name" not in str(error).lower():
+                raise
+
         connection.execute(
             """
             CREATE TABLE IF NOT EXISTS event_logs (
@@ -341,7 +359,7 @@ def get_sent_messages(username):
             """
             SELECT id, sender, receiver, content, status, timestamp_sent, timestamp_read, checksum, server_id
             FROM messages
-            WHERE sender = ?
+            WHERE sender = ? AND hidden_for_sender = 0
             ORDER BY timestamp_sent DESC
             """,
             (username,),
@@ -368,7 +386,14 @@ def get_sent_messages(username):
 @app.delete("/sent-history/<username>")
 def clear_sent_history(username):
     with get_db_connection() as connection:
-        cursor = connection.execute("DELETE FROM messages WHERE sender = ?", (username,))
+        cursor = connection.execute(
+            """
+            UPDATE messages
+            SET hidden_for_sender = 1
+            WHERE sender = ?
+            """,
+            (username,),
+        )
         connection.commit()
         hidden_count = cursor.rowcount if cursor.rowcount is not None else 0
 
@@ -379,7 +404,14 @@ def clear_sent_history(username):
 @app.delete("/inbox-history/<username>")
 def clear_inbox_history(username):
     with get_db_connection() as connection:
-        cursor = connection.execute("DELETE FROM messages WHERE receiver = ?", (username,))
+        cursor = connection.execute(
+            """
+            UPDATE messages
+            SET hidden_for_receiver = 1
+            WHERE receiver = ?
+            """,
+            (username,),
+        )
         connection.commit()
         hidden_count = cursor.rowcount if cursor.rowcount is not None else 0
 

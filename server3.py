@@ -28,10 +28,28 @@ def init_db() -> None:
             timestamp_sent DATETIME DEFAULT CURRENT_TIMESTAMP,
             timestamp_read DATETIME,
             checksum TEXT NOT NULL,
-            server_id TEXT NOT NULL
+            server_id TEXT NOT NULL,
+            hidden_for_sender INTEGER DEFAULT 0,
+            hidden_for_receiver INTEGER DEFAULT 0
             )
             """
         )
+        try:
+            connection.execute(
+                "ALTER TABLE messages ADD COLUMN hidden_for_sender INTEGER DEFAULT 0"
+            )
+        except sqlite3.OperationalError as error:
+            if "duplicate column name" not in str(error).lower():
+                raise
+
+        try:
+            connection.execute(
+                "ALTER TABLE messages ADD COLUMN hidden_for_receiver INTEGER DEFAULT 0"
+            )
+        except sqlite3.OperationalError as error:
+            if "duplicate column name" not in str(error).lower():
+                raise
+
         connection.commit()
 
 
@@ -95,7 +113,7 @@ def get_messages(username):
             """
             SELECT id, sender, receiver, content, status, timestamp_sent, timestamp_read, checksum, server_id
             FROM messages
-            WHERE receiver = ? AND server_id = ?
+            WHERE receiver = ? AND server_id = ? AND hidden_for_receiver = 0
             ORDER BY timestamp_sent DESC
             """,
             (username, SERVER_ID),
@@ -110,7 +128,7 @@ def get_messages(username):
             """
             UPDATE messages
             SET status='READ', timestamp_read=CURRENT_TIMESTAMP
-            WHERE receiver = ? AND server_id = ? AND status='UNREAD'
+            WHERE receiver = ? AND server_id = ? AND status='UNREAD' AND hidden_for_receiver = 0
             """,
             (username, SERVER_ID),
         )
@@ -120,7 +138,7 @@ def get_messages(username):
             """
             SELECT id, sender, receiver, content, status, timestamp_sent, timestamp_read, checksum, server_id
             FROM messages
-            WHERE receiver = ? AND server_id = ?
+            WHERE receiver = ? AND server_id = ? AND hidden_for_receiver = 0
             ORDER BY timestamp_sent DESC
             """,
             (username, SERVER_ID),
