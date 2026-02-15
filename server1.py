@@ -128,7 +128,7 @@ def get_messages(username):
                 """
                 SELECT id, sender, receiver, content, status, timestamp_sent, timestamp_read, checksum, server_id
                 FROM messages
-                WHERE receiver = %s AND server_id = %s AND hidden_for_receiver = FALSE
+                WHERE receiver = %s AND server_id = %s AND COALESCE(hidden_for_receiver, 0) = 0
                 ORDER BY timestamp_sent DESC
                 """,
                 (username, SERVER_ID),
@@ -145,7 +145,7 @@ def get_messages(username):
                 """
                 UPDATE messages
                 SET status='READ', timestamp_read=CURRENT_TIMESTAMP
-                WHERE receiver = %s AND server_id = %s AND status='UNREAD' AND hidden_for_receiver = FALSE
+                WHERE receiver = %s AND server_id = %s AND status='UNREAD' AND COALESCE(hidden_for_receiver, 0) = 0
                 """,
                 (username, SERVER_ID),
             )
@@ -156,7 +156,7 @@ def get_messages(username):
                 """
                 SELECT id, sender, receiver, content, status, timestamp_sent, timestamp_read, checksum, server_id
                 FROM messages
-                WHERE receiver = %s AND server_id = %s AND hidden_for_receiver = FALSE
+                WHERE receiver = %s AND server_id = %s AND COALESCE(hidden_for_receiver, 0) = 0
                 ORDER BY timestamp_sent DESC
                 """,
                 (username, SERVER_ID),
