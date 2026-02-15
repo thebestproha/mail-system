@@ -17,10 +17,14 @@ current_index = 0
 last_routed = None
 event_logs = []
 
+S1_URL = "http://127.0.0.1:5001"
+S2_URL = "http://127.0.0.1:5002"
+S3_URL = "http://127.0.0.1:5003"
+
 server_urls = {
-    "S1": os.getenv("S1_URL", ""),
-    "S2": os.getenv("S2_URL", ""),
-    "S3": os.getenv("S3_URL", ""),
+    "S1": S1_URL,
+    "S2": S2_URL,
+    "S3": S3_URL,
 }
 
 DATABASE_URL = os.getenv("DATABASE_URL")
@@ -178,10 +182,8 @@ def route_request():
         return jsonify({"error": str(error)}), 503
 
     message_id = payload.get("id")
-    target_url = f"{server_urls[server_id]}/receive"
-
     try:
-        response = requests.post(target_url, json=payload, timeout=5)
+        response = requests.post(f"{server_urls[server_id]}/receive", json=payload, timeout=5)
         response.raise_for_status()
     except requests.RequestException as error:
         return jsonify({"error": str(error)}), 502
