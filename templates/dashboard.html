@@ -41,6 +41,42 @@
       margin-bottom: 14px;
     }
 
+    .top-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .demo-btn {
+      border: 1px solid transparent;
+      border-radius: 999px;
+      padding: 8px 14px;
+      color: #fff;
+      font-size: 0.82rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: transform 0.15s ease, filter 0.2s ease, opacity 0.2s ease;
+    }
+
+    .demo-btn:disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
+      transform: none;
+      filter: none;
+    }
+
+    .demo-start {
+      background: linear-gradient(135deg, #2563eb, #1d4ed8);
+      border-color: rgba(147, 197, 253, 0.45);
+    }
+
+    .demo-stop {
+      background: linear-gradient(135deg, #dc2626, #b91c1c);
+      border-color: rgba(252, 165, 165, 0.45);
+    }
+
     .title {
       font-size: 1.25rem;
       font-weight: 700;
@@ -107,8 +143,22 @@
       animation: none;
     }
 
+    .line.skip {
+      stroke: #f59e0b;
+      opacity: 0.95;
+      stroke-dasharray: 4 8;
+      animation: skipPulse 0.65s ease-in-out 2;
+      filter: drop-shadow(0 0 9px rgba(245, 158, 11, 0.7));
+    }
+
     @keyframes pulseLine {
       to { stroke-dashoffset: -16; }
+    }
+
+    @keyframes skipPulse {
+      0% { stroke-dashoffset: 0; }
+      50% { stroke-dashoffset: -8; }
+      100% { stroke-dashoffset: -16; }
     }
 
     .node {
@@ -183,6 +233,7 @@
     .node.down {
       border-color: rgba(239, 68, 68, 0.7);
       box-shadow: 0 0 0 1px rgba(239, 68, 68, 0.2), 0 0 24px rgba(239, 68, 68, 0.2);
+      animation: downGlow 1.4s ease-in-out infinite;
     }
 
     .node.highlight {
@@ -194,9 +245,34 @@
       animation: corruptFlash 0.5s ease-in-out 4;
     }
 
+    .node.integrity-alert {
+      box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.95), 0 0 28px rgba(245, 158, 11, 0.65);
+      animation: integrityPulse 0.8s ease-in-out 3;
+    }
+
+    .node.healed {
+      animation: healPulse 1s ease-in-out 2;
+    }
+
     @keyframes corruptFlash {
       0%, 100% { box-shadow: 0 0 0 1px rgba(239, 68, 68, 0.2), 0 0 16px rgba(239, 68, 68, 0.2); }
       50% { box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.9), 0 0 28px rgba(239, 68, 68, 0.85); }
+    }
+
+    @keyframes integrityPulse {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.03); }
+    }
+
+    @keyframes healPulse {
+      0% { box-shadow: 0 0 0 1px rgba(34, 197, 94, 0.35), 0 0 8px rgba(34, 197, 94, 0.25); }
+      50% { box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.95), 0 0 32px rgba(34, 197, 94, 0.75); }
+      100% { box-shadow: 0 0 0 1px rgba(34, 197, 94, 0.35), 0 0 8px rgba(34, 197, 94, 0.25); }
+    }
+
+    @keyframes downGlow {
+      0%, 100% { box-shadow: 0 0 0 1px rgba(239, 68, 68, 0.2), 0 0 14px rgba(239, 68, 68, 0.2); }
+      50% { box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.55), 0 0 28px rgba(239, 68, 68, 0.35); }
     }
 
     .warn {
@@ -303,7 +379,7 @@
     .right-panel {
       display: grid;
       gap: 12px;
-      grid-template-rows: auto 1fr auto;
+      grid-template-rows: auto auto 1fr;
       min-height: 560px;
     }
 
@@ -347,6 +423,86 @@
       background: rgba(255, 255, 255, 0.02);
     }
 
+    .integrity {
+      border: 1px solid #28406a;
+      border-radius: 10px;
+      padding: 10px;
+      background: rgba(255, 255, 255, 0.02);
+      min-height: 160px;
+    }
+
+    .integrity h3 {
+      margin: 0 0 10px;
+      font-size: 0.96rem;
+    }
+
+    .integrity-state {
+      font-size: 0.82rem;
+      color: #c4d2f0;
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #22c55e;
+      box-shadow: 0 0 12px rgba(34, 197, 94, 0.8);
+    }
+
+    .dot.warn {
+      background: #f59e0b;
+      box-shadow: 0 0 12px rgba(245, 158, 11, 0.8);
+    }
+
+    .integrity-events {
+      display: grid;
+      gap: 8px;
+      max-height: 180px;
+      overflow-y: auto;
+      padding-right: 4px;
+    }
+
+    .integrity-item {
+      font-size: 0.79rem;
+      line-height: 1.35;
+      color: #f1f5ff;
+      border-left: 2px solid #f59e0b;
+      background: rgba(245, 158, 11, 0.12);
+      border-radius: 7px;
+      padding: 7px 9px;
+    }
+
+    .lock-note {
+      margin-top: 8px;
+      font-size: 0.8rem;
+      color: #d1d9ec;
+      display: none;
+      align-items: center;
+      gap: 6px;
+      border: 1px solid rgba(148, 163, 184, 0.4);
+      border-radius: 8px;
+      padding: 7px 8px;
+      background: rgba(148, 163, 184, 0.12);
+    }
+
+    .lock-note.active {
+      display: flex;
+    }
+
+    .lock-icon {
+      display: inline-block;
+      animation: lockPulse 0.6s ease-in-out 3;
+    }
+
+    @keyframes lockPulse {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.2); }
+    }
+
     .btns {
       display: grid;
       grid-template-columns: 1fr 1fr;
@@ -385,7 +541,11 @@
 <body>
   <div class="header">
     <div class="title">Distributed Mail System Monitor</div>
-    <div id="healing-banner" class="banner">🛡️ Self Healing Active • Healthy 3/3</div>
+    <div class="top-actions">
+      <button id="start-demo" class="demo-btn demo-start" type="button">▶ Start Demo</button>
+      <button id="stop-demo" class="demo-btn demo-stop" type="button" disabled>■ Stop Demo</button>
+      <div id="healing-banner" class="banner">🛡️ Self Healing Active • Healthy 3/3</div>
+    </div>
   </div>
 
   <div class="layout">
@@ -454,6 +614,16 @@
         <div id="logs"></div>
       </div>
 
+      <div class="integrity">
+        <h3>Integrity Monitor</h3>
+        <div class="integrity-state">
+          <span id="integrity-dot" class="dot"></span>
+          <span id="integrity-status">System integrity stable</span>
+        </div>
+        <div id="integrity-events" class="integrity-events"></div>
+        <div id="lock-note" class="lock-note"><span class="lock-icon">🔒</span> READ messages are locked from edits</div>
+      </div>
+
       <div class="controls">
         <h3>Server Controls</h3>
         <div class="btns"><button class="fail" onclick="postAction('/fail/S1')">Fail S1</button><button class="restore" onclick="postAction('/restore/S1')">Restore S1</button></div>
@@ -468,6 +638,11 @@
     const servers = ["S1", "S2", "S3"];
     let previousLastRouted = null;
     let packetCounter = 0;
+    let demoRunning = false;
+    let demoRunId = 0;
+    let previousStatuses = { S1: "UP", S2: "UP", S3: "UP" };
+    const seenAlertLogs = new Set();
+    const knownIntegrityEvents = [];
 
     function setNodeState(serverId, status) {
       const node = document.getElementById(`${serverId.toLowerCase()}-node`);
@@ -482,6 +657,23 @@
 
       line.classList.toggle("up", isUp);
       line.classList.toggle("down", !isUp);
+    }
+
+    function pulseHealed(serverId) {
+      const node = document.getElementById(`${serverId.toLowerCase()}-node`);
+      node.classList.remove("healed");
+      void node.offsetWidth;
+      node.classList.add("healed");
+      setTimeout(() => node.classList.remove("healed"), 2100);
+    }
+
+    function animateRouteSkip(serverId) {
+      const line = document.getElementById(`line-lb-${serverId.toLowerCase()}`);
+      if (!line) return;
+      line.classList.remove("skip");
+      void line.offsetWidth;
+      line.classList.add("skip");
+      setTimeout(() => line.classList.remove("skip"), 1500);
     }
 
     function serverLatencyFromData(data, serverId) {
@@ -535,6 +727,84 @@
         div.className = "log";
         div.textContent = entry;
         container.appendChild(div);
+      }
+    }
+
+    function pushIntegrityEvent(message) {
+      const now = new Date().toLocaleTimeString();
+      knownIntegrityEvents.unshift(`[${now}] ${message}`);
+      if (knownIntegrityEvents.length > 10) {
+        knownIntegrityEvents.length = 10;
+      }
+
+      const container = document.getElementById("integrity-events");
+      container.innerHTML = "";
+      if (!knownIntegrityEvents.length) {
+        return;
+      }
+
+      for (const line of knownIntegrityEvents) {
+        const item = document.createElement("div");
+        item.className = "integrity-item";
+        item.textContent = line;
+        container.appendChild(item);
+      }
+    }
+
+    function setIntegrityState(hasWarning, message) {
+      const dot = document.getElementById("integrity-dot");
+      dot.classList.toggle("warn", hasWarning);
+      document.getElementById("integrity-status").textContent = message;
+    }
+
+    function flashIntegrityNode(serverId) {
+      const node = document.getElementById(`${serverId.toLowerCase()}-node`);
+      node.classList.remove("integrity-alert");
+      void node.offsetWidth;
+      node.classList.add("integrity-alert");
+      setTimeout(() => node.classList.remove("integrity-alert"), 2700);
+    }
+
+    function showLockAnimation() {
+      const lockNote = document.getElementById("lock-note");
+      const lockIcon = lockNote.querySelector(".lock-icon");
+      lockNote.classList.add("active");
+      lockIcon.classList.remove("lock-icon");
+      void lockNote.offsetWidth;
+      lockIcon.classList.add("lock-icon");
+    }
+
+    function extractServerMention(text) {
+      const t = text.toLowerCase();
+      if (t.includes("s1")) return "S1";
+      if (t.includes("s2")) return "S2";
+      if (t.includes("s3")) return "S3";
+      return null;
+    }
+
+    function detectIntegrityFromLogs(logs = []) {
+      let warningFound = false;
+      for (const entry of logs) {
+        const raw = String(entry || "");
+        const text = raw.toLowerCase();
+        const isIntegrityText = text.includes("corrupt") || text.includes("checksum");
+        if (!isIntegrityText) continue;
+
+        warningFound = true;
+        if (!seenAlertLogs.has(raw)) {
+          seenAlertLogs.add(raw);
+          const serverMention = extractServerMention(text);
+          if (serverMention) {
+            flashIntegrityNode(serverMention);
+          }
+          pushIntegrityEvent(`Integrity alert: ${raw}`);
+        }
+      }
+
+      if (warningFound) {
+        setIntegrityState(true, "Warning: corruption/checksum event detected");
+      } else {
+        setIntegrityState(false, "System integrity stable");
       }
     }
 
@@ -623,6 +893,179 @@
       }
     }
 
+    async function apiJson(path, method = "GET", body = null) {
+      const response = await fetch(path, {
+        method,
+        headers: body ? { "Content-Type": "application/json" } : undefined,
+        body: body ? JSON.stringify(body) : undefined,
+      });
+
+      const text = await response.text();
+      let payload = {};
+      if (text) {
+        try {
+          payload = JSON.parse(text);
+        } catch (error) {
+          payload = { raw: text };
+        }
+      }
+
+      return { ok: response.ok, status: response.status, data: payload };
+    }
+
+    function setDemoButtonState(running) {
+      document.getElementById("start-demo").disabled = running;
+      document.getElementById("stop-demo").disabled = !running;
+    }
+
+    async function waitStep(ms, runId) {
+      await new Promise((resolve) => setTimeout(resolve, ms));
+      if (!demoRunning || runId !== demoRunId) {
+        throw new Error("Demo stopped");
+      }
+    }
+
+    async function ensureDemoUsers() {
+      await apiJson("/register", "POST", { username: "demo_sender", password: "demo_pw" });
+      await apiJson("/register", "POST", { username: "demo_receiver", password: "demo_pw" });
+    }
+
+    async function sendDemoMessage(id, text) {
+      const routed = await apiJson("/route", "POST", {
+        id,
+        sender: "demo_sender",
+        receiver: "demo_receiver",
+        content: text,
+      });
+
+      if (!routed.ok) {
+        pushIntegrityEvent(`Demo routing failed: ${routed.data.error || "unknown error"}`);
+      }
+      return routed.data || {};
+    }
+
+    async function tryCorruptMessage(messageId, routedServer) {
+      if (!messageId) {
+        pushIntegrityEvent("Corruption step skipped: message id unavailable");
+        return false;
+      }
+
+      const endpointCandidates = [
+        { method: "POST", path: `/corrupt/${messageId}` },
+        { method: "PUT", path: `/corrupt/${messageId}` },
+        { method: "DELETE", path: `/corrupt/${messageId}` },
+        { method: "POST", path: `/corrupt-message/${messageId}` },
+      ];
+
+      for (const candidate of endpointCandidates) {
+        try {
+          const result = await apiJson(candidate.path, candidate.method);
+          if (result.ok) {
+            pushIntegrityEvent(`Corruption simulation triggered via ${candidate.method} ${candidate.path}`);
+            return true;
+          }
+        } catch (error) {
+          console.warn("Corruption endpoint call failed", error);
+        }
+      }
+
+      const routedMap = {
+        S1: "http://127.0.0.1:5001",
+        S2: "http://127.0.0.1:5002",
+        S3: "http://127.0.0.1:5003",
+      };
+
+      if (routedServer && routedMap[routedServer]) {
+        try {
+          const response = await fetch(`${routedMap[routedServer]}/corrupt/${messageId}`, { method: "POST" });
+          if (response.ok) {
+            pushIntegrityEvent(`Corruption simulation triggered on ${routedServer}`);
+            return true;
+          }
+        } catch (error) {
+          console.warn("Direct server corruption endpoint not reachable from browser", error);
+        }
+      }
+
+      pushIntegrityEvent("Corruption endpoint not exposed by LB (graceful fallback applied)");
+      return false;
+    }
+
+    async function triggerEditAfterRead(messageId) {
+      if (!messageId) return;
+
+      await apiJson("/inbox/demo_receiver", "GET");
+      const editAttempt = await apiJson(`/edit-message/${messageId}`, "PUT", {
+        content: `edited-after-read-${Date.now()}`,
+      });
+
+      const errorText = String(editAttempt.data?.error || "").toLowerCase();
+      if (!editAttempt.ok && errorText.includes("read") && errorText.includes("lock")) {
+        showLockAnimation();
+        pushIntegrityEvent("Edit-after-read blocked successfully (READ lock active)");
+      }
+    }
+
+    async function startDemoMode() {
+      if (demoRunning) return;
+      demoRunning = true;
+      demoRunId += 1;
+      const runId = demoRunId;
+      setDemoButtonState(true);
+      pushIntegrityEvent("Demo mode started");
+
+      try {
+        await ensureDemoUsers();
+        await waitStep(350, runId);
+
+        const baseId = Date.now();
+        const first = await sendDemoMessage(baseId, "demo-initial");
+        await waitStep(600, runId);
+
+        await apiJson("/fail/S2", "POST");
+        animateRouteSkip("S2");
+        pushIntegrityEvent("Demo action: S2 failed, route skip animation triggered");
+        await fetchDashboardData();
+        await waitStep(700, runId);
+
+        const second = await sendDemoMessage(baseId + 1, "demo-after-fail");
+        await waitStep(700, runId);
+
+        await apiJson("/restore/S2", "POST");
+        pulseHealed("S2");
+        pushIntegrityEvent("Demo action: S2 restored, self-heal pulse emitted");
+        await fetchDashboardData();
+        await waitStep(700, runId);
+
+        const candidateMessageId = second?.server_response?.id || first?.server_response?.id || (baseId + 1);
+        const candidateServer = second?.routed_to || first?.routed_to || null;
+        await tryCorruptMessage(candidateMessageId, candidateServer);
+        await waitStep(650, runId);
+
+        await triggerEditAfterRead(candidateMessageId);
+        await waitStep(450, runId);
+      } catch (error) {
+        if (String(error.message || "") !== "Demo stopped") {
+          console.error("Demo mode error", error);
+          pushIntegrityEvent(`Demo mode error: ${error.message || "unknown"}`);
+        }
+      } finally {
+        if (runId === demoRunId) {
+          demoRunning = false;
+          setDemoButtonState(false);
+        }
+        await fetchDashboardData();
+      }
+    }
+
+    function stopDemoMode() {
+      if (!demoRunning) return;
+      demoRunning = false;
+      demoRunId += 1;
+      setDemoButtonState(false);
+      pushIntegrityEvent("Demo mode stopped");
+    }
+
     function updateSelfHealingBanner(serverStatus) {
       const upCount = servers.filter((id) => serverStatus[id] === "UP").length;
       const banner = document.getElementById("healing-banner");
@@ -673,6 +1116,16 @@
         updateRoundRobin(data.current_index ?? 0);
         updateSelfHealingBanner(serverStatus);
         renderLogs(data.logs || []);
+        detectIntegrityFromLogs(data.logs || []);
+
+        for (const serverId of servers) {
+          const wasDown = previousStatuses[serverId] === "DOWN";
+          const isUpNow = (serverStatus[serverId] || "DOWN") === "UP";
+          if (wasDown && isUpNow) {
+            pulseHealed(serverId);
+          }
+          previousStatuses[serverId] = serverStatus[serverId] || "DOWN";
+        }
 
         const nextRouted = data.last_routed || null;
         if (nextRouted && nextRouted !== previousLastRouted) {
@@ -685,6 +1138,8 @@
     }
 
     fetchDashboardData();
+    document.getElementById("start-demo").addEventListener("click", startDemoMode);
+    document.getElementById("stop-demo").addEventListener("click", stopDemoMode);
     setInterval(fetchDashboardData, 2000);
   </script>
 </body>
