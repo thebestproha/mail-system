@@ -152,7 +152,21 @@ def edit_message(message_id):
     checksum = hashlib.md5(new_content.encode()).hexdigest()
 
     with get_db_connection() as connection:
-        cursor = connection.execute(
+        existing_row = connection.execute(
+            "SELECT content, status FROM messages WHERE id = ? AND server_id = ?",
+            (message_id, SERVER_ID),
+        ).fetchone()
+
+        if existing_row is None:
+            return jsonify({"error": "Message not found"}), 404
+
+        if existing_row[1] == "READ":
+            return jsonify({"error": "Message already read and locked"}), 400
+
+        if (existing_row[0] or "") == new_content:
+            return jsonify({"message": "No changes to update", "id": message_id})
+
+        connection.execute(
             """
             UPDATE messages
             SET content = ?, checksum = ?
@@ -161,9 +175,6 @@ def edit_message(message_id):
             (new_content, checksum, message_id, SERVER_ID),
         )
         connection.commit()
-
-        if cursor.rowcount == 0:
-            return jsonify({"error": "Message already read and locked"}), 400
 
     return jsonify({"message": "Updated successfully", "id": message_id})
 
