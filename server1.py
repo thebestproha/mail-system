@@ -295,3 +295,8 @@ def get_stats():
             row = cursor.fetchone()
 
     return jsonify({"server_id": SERVER_ID, "message_count": int(row[0] if row else 0)})
+
+if __name__ == "__main__":
+    import os
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host="0.0.0.0", port=port)
