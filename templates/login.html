@@ -11,6 +11,14 @@
   <title>Login</title>
   <style>
     body { font-family: Arial, sans-serif; background:#f4f6f8; margin:0; padding:24px; }
+    .topbar { max-width:420px; margin:0 auto 10px; display:flex; align-items:center; }
+    .app-logo {
+      height: 40px;
+      width: auto;
+      margin-right: 10px;
+      vertical-align: middle;
+    }
+    .app-title { font-size:1rem; font-weight:700; color:#111827; }
     .card { max-width:420px; margin:40px auto; background:#fff; border:1px solid #d1d5db; border-radius:10px; padding:18px; }
     h2 { margin-top:0; }
     label { display:block; margin-top:10px; font-weight:600; }
@@ -20,6 +28,10 @@
   </style>
 </head>
 <body>
+  <div class="topbar">
+    <img src="{{ url_for('static', filename='logo.png') }}" class="app-logo" alt="MiniMail Logo">
+    <div class="app-title">MiniMail Distributed System</div>
+  </div>
   <div class="card">
     <h2>User Login</h2>
     <form method="post" action="/login">

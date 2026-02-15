@@ -88,6 +88,19 @@
       letter-spacing: 0.2px;
     }
 
+    .brand {
+      display: flex;
+      align-items: center;
+      min-width: 0;
+    }
+
+    .app-logo {
+      height: 40px;
+      width: auto;
+      margin-right: 10px;
+      vertical-align: middle;
+    }
+
     .banner {
       background: rgba(34, 197, 94, 0.15);
       border: 1px solid rgba(34, 197, 94, 0.4);
@@ -545,7 +558,10 @@
 </head>
 <body>
   <div class="header">
-    <div class="title">Distributed Mail System Monitor</div>
+    <div class="brand">
+      <img src="{{ url_for('static', filename='logo.png') }}" class="app-logo" alt="MiniMail Logo">
+      <div class="title">MiniMail Distributed System</div>
+    </div>
     <div class="top-actions">
       <button id="start-demo" class="demo-btn demo-start" type="button">▶ Start Demo</button>
       <button id="stop-demo" class="demo-btn demo-stop" type="button" disabled>■ Stop Demo</button>

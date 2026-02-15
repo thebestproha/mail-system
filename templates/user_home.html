@@ -12,6 +12,14 @@
   <style>
     body { font-family: Arial, sans-serif; background:#f4f6f8; margin:0; padding:20px; color:#1f2937; }
     .top { display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; }
+    .top-left { display:flex; align-items:center; min-width:0; }
+    .app-logo {
+      height: 40px;
+      width: auto;
+      margin-right: 10px;
+      vertical-align: middle;
+    }
+    .app-title { margin:0; font-size:1.35rem; }
     .grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap:14px; }
     .card { background:#fff; border:1px solid #d1d5db; border-radius:10px; padding:14px; }
     label { display:block; margin-top:10px; font-weight:600; }
@@ -31,7 +39,10 @@
 </head>
 <body>
   <div class="top">
-    <h2>User Client</h2>
+    <div class="top-left">
+      <img src="{{ url_for('static', filename='logo.png') }}" class="app-logo" alt="MiniMail Logo">
+      <h2 class="app-title">MiniMail Distributed System</h2>
+    </div>
     <div>
       Logged in as <strong id="current-user"></strong>
       <a href="/login" style="margin-left:12px; color:#2563eb; text-decoration:none;">Logout</a>
