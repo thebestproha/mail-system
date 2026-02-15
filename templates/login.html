@@ -3,6 +3,11 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="manifest" href="/static/manifest.json">
+  <meta name="theme-color" content="#0f172a">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
   <title>Login</title>
   <style>
     body { font-family: Arial, sans-serif; background:#f4f6f8; margin:0; padding:24px; }
@@ -29,5 +34,12 @@
     <p>New user? <a href="/register">Create account</a></p>
     <p><a href="/dashboard">Open admin dashboard</a></p>
   </div>
+  <script>
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", () => {
+        navigator.serviceWorker.register("/static/sw.js");
+      });
+    }
+  </script>
 </body>
 </html>
