@@ -128,10 +128,10 @@ def get_messages(username):
                 """
                 SELECT id, sender, receiver, content, status, timestamp_sent, timestamp_read, checksum, server_id
                 FROM messages
-                WHERE receiver = %s AND server_id = %s AND hidden_for_receiver = FALSE
+                WHERE receiver = %s AND hidden_for_receiver = FALSE
                 ORDER BY timestamp_sent DESC
                 """,
-                (username, SERVER_ID),
+                (username,),
             )
             rows = cursor.fetchall()
 
@@ -145,9 +145,9 @@ def get_messages(username):
                 """
                 UPDATE messages
                 SET status='READ', timestamp_read=CURRENT_TIMESTAMP
-                WHERE receiver = %s AND server_id = %s AND status='UNREAD' AND hidden_for_receiver = FALSE
+                WHERE receiver = %s AND status='UNREAD' AND hidden_for_receiver = FALSE
                 """,
-                (username, SERVER_ID),
+                (username,),
             )
         connection.commit()
 
@@ -156,10 +156,10 @@ def get_messages(username):
                 """
                 SELECT id, sender, receiver, content, status, timestamp_sent, timestamp_read, checksum, server_id
                 FROM messages
-                WHERE receiver = %s AND server_id = %s AND hidden_for_receiver = FALSE
+                WHERE receiver = %s AND hidden_for_receiver = FALSE
                 ORDER BY timestamp_sent DESC
                 """,
-                (username, SERVER_ID),
+                (username,),
             )
             updated_rows = cursor.fetchall()
     finally:
