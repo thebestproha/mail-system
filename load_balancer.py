@@ -3,6 +3,7 @@ import requests
 import os
 import psycopg2
 from psycopg2.pool import SimpleConnectionPool
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
 app = Flask(__name__)
@@ -356,24 +357,36 @@ def get_inbox(username):
     merged_messages = []
     seen_ids = set()
 
-    for _, server_url in server_urls.items():
-        try:
-            response = requests.get(f"{server_url}/messages/{username}", timeout=5)
-            if response.status_code == 200:
-                server_messages = response.json()
-                if isinstance(server_messages, list):
-                    visible_messages = [
-                        message
-                        for message in server_messages
-                    ]
-                    for message in visible_messages:
-                        message_id = message.get("id")
-                        if message_id in seen_ids:
-                            continue
-                        seen_ids.add(message_id)
-                        merged_messages.append(message)
-        except requests.RequestException:
+    responses_by_server = {}
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        futures = {
+            executor.submit(requests.get, f"{server_url}/messages/{username}", timeout=1): server_id
+            for server_id, server_url in server_urls.items()
+        }
+        for future in as_completed(futures):
+            server_id = futures[future]
+            try:
+                responses_by_server[server_id] = future.result()
+            except requests.RequestException:
+                continue
+
+    for server_id in server_urls:
+        response = responses_by_server.get(server_id)
+        if response is None:
             continue
+        if response.status_code == 200:
+            server_messages = response.json()
+            if isinstance(server_messages, list):
+                visible_messages = [
+                    message
+                    for message in server_messages
+                ]
+                for message in visible_messages:
+                    message_id = message.get("id")
+                    if message_id in seen_ids:
+                        continue
+                    seen_ids.add(message_id)
+                    merged_messages.append(message)
 
     merged_messages.sort(key=lambda item: item.get("timestamp_sent", ""), reverse=True)
     return jsonify(merged_messages)
@@ -464,40 +477,69 @@ def edit_message(message_id):
     payload = request.get_json(silent=True) or {}
     content = payload.get("content", "")
 
-    for server_id, server_url in server_urls.items():
-        try:
-            response = requests.put(
+    responses_by_server = {}
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        futures = {
+            executor.submit(
+                requests.put,
                 f"{server_url}/edit/{message_id}",
                 json={"content": content},
-                timeout=5,
-            )
+                timeout=1,
+            ): server_id
+            for server_id, server_url in server_urls.items()
+        }
+        for future in as_completed(futures):
+            server_id = futures[future]
+            try:
+                responses_by_server[server_id] = future.result()
+            except requests.RequestException:
+                continue
 
-            if response.status_code == 200:
-                add_log(f"Message {message_id} edited on {server_id}")
-                return jsonify({"server": server_id, **response.json()})
-
-            if response.status_code == 400:
-                return jsonify(response.json()), 400
-        except requests.RequestException:
+    for server_id in server_urls:
+        response = responses_by_server.get(server_id)
+        if response is None:
             continue
+
+        if response.status_code == 200:
+            add_log(f"Message {message_id} edited on {server_id}")
+            return jsonify({"server": server_id, **response.json()})
+
+        if response.status_code == 400:
+            return jsonify(response.json()), 400
 
     return jsonify({"error": "Message not found"}), 404
 
 
 @app.delete("/delete-message/<message_id>")
 def delete_message(message_id):
-    for server_id, server_url in server_urls.items():
-        try:
-            response = requests.delete(f"{server_url}/delete/{message_id}", timeout=5)
+    responses_by_server = {}
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        futures = {
+            executor.submit(
+                requests.delete,
+                f"{server_url}/delete/{message_id}",
+                timeout=1,
+            ): server_id
+            for server_id, server_url in server_urls.items()
+        }
+        for future in as_completed(futures):
+            server_id = futures[future]
+            try:
+                responses_by_server[server_id] = future.result()
+            except requests.RequestException:
+                continue
 
-            if response.status_code == 200:
-                add_log(f"Message {message_id} deleted on {server_id}")
-                return jsonify({"server": server_id, **response.json()})
-
-            if response.status_code == 400:
-                return jsonify(response.json()), 400
-        except requests.RequestException:
+    for server_id in server_urls:
+        response = responses_by_server.get(server_id)
+        if response is None:
             continue
+
+        if response.status_code == 200:
+            add_log(f"Message {message_id} deleted on {server_id}")
+            return jsonify({"server": server_id, **response.json()})
+
+        if response.status_code == 400:
+            return jsonify(response.json()), 400
 
     return jsonify({"error": "Message not found"}), 404
 
