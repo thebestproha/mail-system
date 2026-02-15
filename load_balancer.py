@@ -17,10 +17,14 @@ available_servers = ["S1", "S2", "S3"]
 current_index = 0
 last_routed = None
 
+S1_URL = "http://127.0.0.1:5001"
+S2_URL = "http://127.0.0.1:5002"
+S3_URL = "http://127.0.0.1:5003"
+
 server_urls = {
-    "S1": os.getenv("S1_URL", "http://127.0.0.1:5001"),
-    "S2": os.getenv("S2_URL", "http://127.0.0.1:5002"),
-    "S3": os.getenv("S3_URL", "http://127.0.0.1:5003"),
+    "S1": S1_URL,
+    "S2": S2_URL,
+    "S3": S3_URL,
 }
 
 DB_PATH = Path("mail_system.db")
