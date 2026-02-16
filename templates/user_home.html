@@ -9,126 +9,236 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black">
   <title>User Home</title>
-  <style>
-    body { font-family: Arial, sans-serif; background:#f4f6f8; margin:0; padding:20px; color:#1f2937; }
-    .top { display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; }
-    .top-left { display:flex; align-items:center; min-width:0; }
-    .app-logo {
-      height: 40px;
-      width: auto;
-      margin-right: 10px;
-      vertical-align: middle;
-    }
-    .app-title { margin:0; font-size:1.35rem; }
-    .grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap:14px; }
-    .card { background:#fff; border:1px solid #d1d5db; border-radius:10px; padding:14px; }
-    label { display:block; margin-top:10px; font-weight:600; }
-    input, textarea { width:100%; margin-top:6px; border:1px solid #d1d5db; border-radius:6px; padding:9px; box-sizing:border-box; }
-    textarea { min-height:90px; resize:vertical; }
-    button { margin-top:12px; border:none; border-radius:6px; padding:9px 12px; cursor:pointer; font-weight:700; color:#fff; background:#2563eb; }
-    .list { max-height:360px; overflow-y:auto; border:1px solid #e5e7eb; border-radius:8px; background:#f9fafb; padding:10px; }
-    .item { border-bottom:1px solid #e5e7eb; padding:8px 0; }
-    .item:last-child { border-bottom:none; }
-    .meta { font-size:12px; color:#6b7280; margin-top:4px; }
-    .status { font-size:12px; font-weight:700; }
-    .actions { margin-top:8px; display:flex; gap:8px; }
-    .mini-btn { margin-top:0; padding:6px 10px; font-size:12px; }
-    .edit-btn { background:#2563eb; }
-    .delete-btn { background:#dc2626; }
-  </style>
+  <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
 </head>
-<body>
-  <div class="top">
-    <div class="top-left">
+<body class="mail-page">
+  <aside class="mail-sidebar">
+    <div class="mail-brand">
       <img src="{{ url_for('static', filename='logo.png') }}" class="app-logo" alt="MiniMail Logo">
-      <h2 class="app-title">MiniMail Distributed System</h2>
-    </div>
-    <div>
-      Logged in as <strong id="current-user"></strong>
-      <a href="/login" style="margin-left:12px; color:#2563eb; text-decoration:none;">Logout</a>
-    </div>
-  </div>
-
-  <div class="grid">
-    <div class="card">
-      <h3>Send Message</h3>
-      <label for="receiver">Receiver</label>
-      <input id="receiver" />
-
-      <label for="content">Content</label>
-      <textarea id="content"></textarea>
-
-      <button id="send-btn">Send via Load Balancer</button>
-      <div id="send-result" style="margin-top:8px;font-size:14px;"></div>
-      <div id="action-result" style="margin-top:6px;font-size:14px;"></div>
+      <h1>MiniMail<br>Distributed System</h1>
     </div>
 
-    <div class="card">
-      <h3>Inbox</h3>
-      <button id="refresh-inbox">Refresh Inbox</button>
-      <button id="clear-inbox" style="margin-left:8px; background:#dc2626;">Clear Inbox History</button>
-      <div id="inbox" class="list" style="margin-top:10px;"></div>
+    <button id="open-compose" class="btn btn-primary compose-btn" type="button">✉ Compose</button>
+
+    <nav class="mail-nav" aria-label="Mailbox">
+      <button id="nav-inbox" class="btn nav-btn active" type="button">Inbox</button>
+      <button id="nav-sent" class="btn nav-btn" type="button">Sent</button>
+      <a class="btn nav-btn" href="/login">Logout</a>
+    </nav>
+
+    <div class="mail-user">
+      Logged in as<br>
+      <strong id="current-user"></strong>
+    </div>
+  </aside>
+
+  <main class="mail-main">
+    <section class="mail-list-panel">
+      <div class="panel-head">
+        <h2 id="mailbox-title">Inbox</h2>
+        <div class="panel-tools">
+          <button id="refresh-btn" class="btn btn-ghost" type="button">Refresh</button>
+          <button id="clear-btn" class="btn btn-danger" type="button">Clear</button>
+        </div>
+      </div>
+
+      <div id="message-list" class="message-list" aria-live="polite"></div>
+
+      <div class="sr-only">
+        <button id="refresh-inbox" type="button">Refresh Inbox</button>
+        <button id="clear-inbox" type="button">Clear Inbox History</button>
+        <button id="refresh-sent" type="button">Refresh Sent</button>
+        <button id="clear-sent" type="button">Clear Sent History</button>
+      </div>
+    </section>
+
+    <section class="mail-detail-panel">
+      <article class="detail-card">
+        <div class="detail-head">
+          <div>
+            <h3 id="detail-title">Select a message</h3>
+            <div id="detail-meta" class="detail-meta"></div>
+          </div>
+          <div id="detail-status"></div>
+        </div>
+
+        <div id="detail-content" class="detail-content detail-empty">Choose a message from the list to view details.</div>
+
+        <div id="detail-actions" class="detail-actions"></div>
+
+        <div id="action-result" class="message-feedback" role="status" aria-live="polite"></div>
+      </article>
+    </section>
+  </main>
+
+  <section id="compose-panel" class="compose-panel" aria-label="Compose message">
+    <div class="compose-head">
+      <h3>New Message</h3>
+      <button id="close-compose" class="btn btn-ghost" type="button">Close</button>
     </div>
 
-    <div class="card">
-      <h3>Sent Messages</h3>
-      <button id="refresh-sent">Refresh Sent</button>
-      <button id="clear-sent" style="margin-left:8px; background:#dc2626;">Clear Sent History</button>
-      <div id="sent" class="list" style="margin-top:10px;"></div>
+    <div class="compose-body">
+      <div class="form-group">
+        <label for="receiver">Receiver</label>
+        <input id="receiver" placeholder="Recipient username" />
+      </div>
+
+      <div class="form-group">
+        <label for="content">Message</label>
+        <textarea id="content" placeholder="Write your message"></textarea>
+      </div>
+
+      <div class="compose-foot">
+        <div id="send-result" class="message-feedback" role="status" aria-live="polite"></div>
+        <button id="send-btn" class="btn btn-primary" type="button">Send</button>
+      </div>
     </div>
-  </div>
+  </section>
 
   <script>
     const params = new URLSearchParams(window.location.search);
     const username = params.get("username") || "";
     document.getElementById("current-user").textContent = username || "Unknown";
+    const state = {
+      currentBox: "inbox",
+      inbox: [],
+      sent: [],
+      selectedId: null,
+    };
 
-    function renderMessages(containerId, messages, type) {
-      const container = document.getElementById(containerId);
+    const composePanel = document.getElementById("compose-panel");
+
+    function setFeedback(target, message, type = "") {
+      target.textContent = message || "";
+      target.className = `message-feedback${type ? ` ${type}` : ""}`;
+    }
+
+    function openCompose() {
+      composePanel.classList.add("open");
+      document.getElementById("receiver").focus();
+    }
+
+    function closeCompose() {
+      composePanel.classList.remove("open");
+    }
+
+    function useBox(box) {
+      state.currentBox = box;
+      state.selectedId = null;
+      document.getElementById("mailbox-title").textContent = box === "inbox" ? "Inbox" : "Sent";
+      document.getElementById("nav-inbox").classList.toggle("active", box === "inbox");
+      document.getElementById("nav-sent").classList.toggle("active", box === "sent");
+      renderCurrentList();
+      renderSelectedMessage();
+    }
+
+    function previewText(content) {
+      return String(content || "").replace(/\n/g, " ").slice(0, 96) || "No content";
+    }
+
+    function activeMessages() {
+      return state.currentBox === "inbox" ? state.inbox : state.sent;
+    }
+
+    function selectedMessage() {
+      return activeMessages().find((message) => String(message.id) === String(state.selectedId)) || null;
+    }
+
+    function statusBadge(status) {
+      const normalized = String(status || "").toUpperCase();
+      const cls = normalized === "READ" ? "status-read" : "status-unread";
+      return `<span class="pill ${cls}">${normalized || "UNKNOWN"}</span>`;
+    }
+
+    function renderCurrentList() {
+      const container = document.getElementById("message-list");
+      const messages = activeMessages();
       container.innerHTML = "";
 
-      if (!messages || messages.length === 0) {
-        container.innerHTML = '<div class="item">No messages</div>';
+      if (!messages.length) {
+        const empty = document.createElement("div");
+        empty.className = "message-card";
+        empty.innerHTML = `<p class="message-title">No messages</p><p class="message-preview">Nothing to display in ${state.currentBox}.</p>`;
+        container.appendChild(empty);
         return;
       }
 
-      messages.forEach((message) => {
-        const div = document.createElement("div");
-        div.className = "item";
-        const renderedContent = (message.content || "").replace(/\n/g, "<br>");
-
-        const title = type === "inbox"
+      for (const message of messages) {
+        const card = document.createElement("article");
+        card.className = `message-card${String(message.id) === String(state.selectedId) ? " active" : ""}`;
+        const title = state.currentBox === "inbox"
           ? `From: ${message.sender || "-"}`
           : `To: ${message.receiver || "-"}`;
 
-        div.innerHTML = `
-          <div><strong>${title}</strong></div>
-          <div>${renderedContent}</div>
-          <div class="meta">ID: ${message.id} | Server: ${message.server_id || "-"} | Sent: ${message.timestamp_sent || "-"}</div>
-          <div class="status">${message.status || ""}</div>
+        card.innerHTML = `
+          <div class="message-row">
+            <p class="message-title">${title}</p>
+            <p class="message-time">${message.timestamp_sent || "-"}</p>
+          </div>
+          <div class="message-row">
+            ${statusBadge(message.status)}
+            <span class="message-time">#${message.id}</span>
+          </div>
+          <p class="message-preview">${previewText(message.content)}</p>
         `;
 
-        if (type === "sent" && message.status === "UNREAD") {
-          const actions = document.createElement("div");
-          actions.className = "actions";
+        card.addEventListener("click", () => {
+          state.selectedId = message.id;
+          renderCurrentList();
+          renderSelectedMessage();
+        });
 
-          const editButton = document.createElement("button");
-          editButton.className = "mini-btn edit-btn";
-          editButton.textContent = "Edit";
-          editButton.onclick = () => editSentMessage(message.id, message.content || "");
+        container.appendChild(card);
+      }
+    }
 
-          const deleteButton = document.createElement("button");
-          deleteButton.className = "mini-btn delete-btn";
-          deleteButton.textContent = "Delete";
-          deleteButton.onclick = () => deleteSentMessage(message.id);
+    function renderSelectedMessage() {
+      const message = selectedMessage();
+      const title = document.getElementById("detail-title");
+      const meta = document.getElementById("detail-meta");
+      const status = document.getElementById("detail-status");
+      const content = document.getElementById("detail-content");
+      const actions = document.getElementById("detail-actions");
 
-          actions.appendChild(editButton);
-          actions.appendChild(deleteButton);
-          div.appendChild(actions);
-        }
+      if (!message) {
+        title.textContent = "Select a message";
+        meta.innerHTML = "";
+        status.innerHTML = "";
+        content.className = "detail-content detail-empty";
+        content.textContent = "Choose a message from the list to view details.";
+        actions.innerHTML = "";
+        return;
+      }
 
-        container.appendChild(div);
-      });
+      title.textContent = state.currentBox === "inbox"
+        ? `From ${message.sender || "-"}`
+        : `To ${message.receiver || "-"}`;
+      meta.innerHTML = `
+        <span>ID: ${message.id}</span>
+        <span>Server: ${message.server_id || "-"}</span>
+        <span>Timestamp: ${message.timestamp_sent || "-"}</span>
+      `;
+      status.innerHTML = statusBadge(message.status);
+      content.className = "detail-content";
+      content.textContent = message.content || "";
+      actions.innerHTML = "";
+
+      if (state.currentBox === "sent" && String(message.status || "").toUpperCase() === "UNREAD") {
+        const editButton = document.createElement("button");
+        editButton.className = "btn btn-primary";
+        editButton.type = "button";
+        editButton.textContent = "Edit";
+        editButton.addEventListener("click", () => editSentMessage(message.id, message.content || ""));
+
+        const deleteButton = document.createElement("button");
+        deleteButton.className = "btn btn-danger";
+        deleteButton.type = "button";
+        deleteButton.textContent = "Delete";
+        deleteButton.addEventListener("click", () => deleteSentMessage(message.id));
+
+        actions.appendChild(editButton);
+        actions.appendChild(deleteButton);
+      }
     }
 
     async function editSentMessage(messageId, currentContent) {
@@ -151,12 +261,10 @@
           throw new Error(data.error || "edit failed");
         }
 
-        actionResult.textContent = `edited message ${messageId}`;
-        actionResult.style.color = "#16a34a";
+        setFeedback(actionResult, `edited message ${messageId}`, "success");
         await loadSent();
       } catch (error) {
-        actionResult.textContent = error.message;
-        actionResult.style.color = "#dc2626";
+        setFeedback(actionResult, error.message, "error");
       }
     }
 
@@ -177,12 +285,10 @@
           throw new Error(data.error || "delete failed");
         }
 
-        actionResult.textContent = `deleted message ${messageId}`;
-        actionResult.style.color = "#16a34a";
+        setFeedback(actionResult, `deleted message ${messageId}`, "success");
         await loadSent();
       } catch (error) {
-        actionResult.textContent = error.message;
-        actionResult.style.color = "#dc2626";
+        setFeedback(actionResult, error.message, "error");
       }
     }
 
@@ -207,12 +313,10 @@
           throw new Error(data.error || "clear history failed");
         }
 
-        actionResult.textContent = `cleared ${data.deleted || 0} sent messages`;
-        actionResult.style.color = "#16a34a";
+        setFeedback(actionResult, `cleared ${data.deleted || 0} sent messages`, "success");
         await loadSent();
       } catch (error) {
-        actionResult.textContent = error.message;
-        actionResult.style.color = "#dc2626";
+        setFeedback(actionResult, error.message, "error");
       }
     }
 
@@ -237,27 +341,47 @@
           throw new Error(data.error || "clear inbox failed");
         }
 
-        actionResult.textContent = `cleared ${data.deleted || 0} inbox messages`;
-        actionResult.style.color = "#16a34a";
+        setFeedback(actionResult, `cleared ${data.deleted || 0} inbox messages`, "success");
         await loadInbox();
       } catch (error) {
-        actionResult.textContent = error.message;
-        actionResult.style.color = "#dc2626";
+        setFeedback(actionResult, error.message, "error");
       }
     }
 
     async function loadInbox() {
       if (!username) return;
       const response = await fetch(`/inbox/${encodeURIComponent(username)}`);
-      const data = await response.json();
-      renderMessages("inbox", data, "inbox");
+      state.inbox = await response.json();
+      if (state.currentBox === "inbox") {
+        renderCurrentList();
+        renderSelectedMessage();
+      }
     }
 
     async function loadSent() {
       if (!username) return;
       const response = await fetch(`/sent/${encodeURIComponent(username)}`);
-      const data = await response.json();
-      renderMessages("sent", data, "sent");
+      state.sent = await response.json();
+      if (state.currentBox === "sent") {
+        renderCurrentList();
+        renderSelectedMessage();
+      }
+    }
+
+    async function refreshCurrentBox() {
+      if (state.currentBox === "inbox") {
+        await loadInbox();
+        return;
+      }
+      await loadSent();
+    }
+
+    async function clearCurrentBox() {
+      if (state.currentBox === "inbox") {
+        await clearInboxHistory();
+        return;
+      }
+      await clearSentHistory();
     }
 
     async function sendMessage() {
@@ -266,8 +390,7 @@
       const result = document.getElementById("send-result");
 
       if (!username || !receiver || !content) {
-        result.textContent = "username, receiver and content are required";
-        result.style.color = "#dc2626";
+        setFeedback(result, "username, receiver and content are required", "error");
         return;
       }
 
@@ -286,13 +409,14 @@
           throw new Error(data.error || "send failed");
         }
 
-        result.textContent = `sent via ${data.routed_to}`;
-        result.style.color = "#16a34a";
+        setFeedback(result, `sent via ${data.routed_to}`, "success");
         document.getElementById("content").value = "";
+        document.getElementById("receiver").value = "";
         await loadSent();
+        useBox("sent");
+        closeCompose();
       } catch (error) {
-        result.textContent = error.message;
-        result.style.color = "#dc2626";
+        setFeedback(result, error.message, "error");
       }
     }
 
@@ -301,9 +425,16 @@
     document.getElementById("clear-inbox").addEventListener("click", clearInboxHistory);
     document.getElementById("refresh-sent").addEventListener("click", loadSent);
     document.getElementById("clear-sent").addEventListener("click", clearSentHistory);
+    document.getElementById("refresh-btn").addEventListener("click", refreshCurrentBox);
+    document.getElementById("clear-btn").addEventListener("click", clearCurrentBox);
+    document.getElementById("nav-inbox").addEventListener("click", () => useBox("inbox"));
+    document.getElementById("nav-sent").addEventListener("click", () => useBox("sent"));
+    document.getElementById("open-compose").addEventListener("click", openCompose);
+    document.getElementById("close-compose").addEventListener("click", closeCompose);
 
     loadInbox();
     loadSent();
+    useBox("inbox");
 
     if ("serviceWorker" in navigator) {
       window.addEventListener("load", () => {

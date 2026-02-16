@@ -9,650 +9,110 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black">
   <title>Distributed Mail System Monitor</title>
-  <style>
-    :root {
-      --bg: #0b1220;
-      --panel: #111a2d;
-      --panel-2: #16213b;
-      --text: #e8eefc;
-      --muted: #a7b2cb;
-      --up: #22c55e;
-      --down: #ef4444;
-      --warn: #f59e0b;
-      --line: #3a4a72;
-      --line-up: #42d392;
-      --line-down: #6b2a34;
-      --accent: #60a5fa;
-    }
-
-    * {
-      box-sizing: border-box;
-    }
-
-    body {
-      margin: 0;
-      font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
-      background: radial-gradient(circle at top, #152342 0%, var(--bg) 52%);
-      color: var(--text);
-      min-height: 100vh;
-      padding: 18px;
-    }
-
-    .header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 12px;
-      margin-bottom: 14px;
-    }
-
-    .top-actions {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      flex-wrap: wrap;
-      justify-content: flex-end;
-    }
-
-    .demo-btn {
-      border: 1px solid transparent;
-      border-radius: 999px;
-      padding: 8px 14px;
-      color: #fff;
-      font-size: 0.82rem;
-      font-weight: 700;
-      cursor: pointer;
-      transition: transform 0.15s ease, filter 0.2s ease, opacity 0.2s ease;
-    }
-
-    .demo-btn:disabled {
-      opacity: 0.55;
-      cursor: not-allowed;
-      transform: none;
-      filter: none;
-    }
-
-    .demo-start {
-      background: linear-gradient(135deg, #2563eb, #1d4ed8);
-      border-color: rgba(147, 197, 253, 0.45);
-    }
-
-    .demo-stop {
-      background: linear-gradient(135deg, #dc2626, #b91c1c);
-      border-color: rgba(252, 165, 165, 0.45);
-    }
-
-    .title {
-      font-size: 1.25rem;
-      font-weight: 700;
-      letter-spacing: 0.2px;
-    }
-
-    .brand {
-      display: flex;
-      align-items: center;
-      min-width: 0;
-    }
-
-    .app-logo {
-      height: 40px;
-      width: auto;
-      margin-right: 10px;
-      vertical-align: middle;
-    }
-
-    .banner {
-      background: rgba(34, 197, 94, 0.15);
-      border: 1px solid rgba(34, 197, 94, 0.4);
-      color: #bbf7d0;
-      padding: 8px 12px;
-      border-radius: 999px;
-      font-size: 0.85rem;
-      white-space: nowrap;
-    }
-
-    .layout {
-      display: grid;
-      grid-template-columns: 1.75fr 1fr;
-      gap: 14px;
-    }
-
-    .panel {
-      background: linear-gradient(180deg, var(--panel) 0%, #0f1a31 100%);
-      border: 1px solid #213154;
-      border-radius: 14px;
-      padding: 14px;
-      position: relative;
-      overflow: hidden;
-    }
-
-    .topology-wrap {
-      min-height: 560px;
-      position: relative;
-    }
-
-    .topology-svg {
-      position: absolute;
-      inset: 0;
-      width: 100%;
-      height: 100%;
-      pointer-events: none;
-      z-index: 1;
-    }
-
-    .line {
-      stroke: var(--line);
-      stroke-width: 3;
-      opacity: 0.9;
-      transition: all 0.25s ease;
-    }
-
-    .line.up {
-      stroke: var(--line-up);
-      stroke-dasharray: 8 8;
-      animation: pulseLine 1.6s linear infinite;
-      filter: drop-shadow(0 0 8px rgba(66, 211, 146, 0.35));
-    }
-
-    .line.down {
-      stroke: var(--line-down);
-      opacity: 0.2;
-      stroke-dasharray: none;
-      animation: none;
-    }
-
-    .line.skip {
-      stroke: #f59e0b;
-      opacity: 0.95;
-      stroke-dasharray: 4 8;
-      animation: skipPulse 0.65s ease-in-out 2;
-      filter: drop-shadow(0 0 9px rgba(245, 158, 11, 0.7));
-    }
-
-    @keyframes pulseLine {
-      to { stroke-dashoffset: -16; }
-    }
-
-    @keyframes skipPulse {
-      0% { stroke-dashoffset: 0; }
-      50% { stroke-dashoffset: -8; }
-      100% { stroke-dashoffset: -16; }
-    }
-
-    .node {
-      position: absolute;
-      width: 154px;
-      min-height: 110px;
-      background: linear-gradient(180deg, #192847, var(--panel-2));
-      border: 1px solid #355188;
-      border-radius: 12px;
-      padding: 10px;
-      z-index: 2;
-      transition: transform 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease;
-    }
-
-    .node .head {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 6px;
-      gap: 8px;
-    }
-
-    .node .name {
-      font-weight: 700;
-      letter-spacing: 0.3px;
-    }
-
-    .status {
-      font-size: 0.75rem;
-      font-weight: 700;
-      border-radius: 999px;
-      padding: 2px 8px;
-      border: 1px solid;
-    }
-
-    .status.up {
-      color: #86efac;
-      border-color: rgba(34, 197, 94, 0.55);
-      background: rgba(34, 197, 94, 0.15);
-    }
-
-    .status.down {
-      color: #fecaca;
-      border-color: rgba(239, 68, 68, 0.55);
-      background: rgba(239, 68, 68, 0.16);
-    }
-
-    .node .meta {
-      font-size: 0.8rem;
-      color: var(--muted);
-      display: grid;
-      gap: 4px;
-    }
-
-    .latency {
-      color: #bfdbfe;
-      background: rgba(96, 165, 250, 0.14);
-      border: 1px solid rgba(96, 165, 250, 0.35);
-      border-radius: 8px;
-      padding: 1px 7px;
-      font-size: 0.72rem;
-      display: inline-block;
-      margin-top: 2px;
-      width: fit-content;
-    }
-
-    .node.up {
-      border-color: rgba(34, 197, 94, 0.65);
-      box-shadow: 0 0 0 1px rgba(34, 197, 94, 0.25), 0 0 25px rgba(34, 197, 94, 0.24);
-    }
-
-    .node.down {
-      border-color: rgba(239, 68, 68, 0.7);
-      box-shadow: 0 0 0 1px rgba(239, 68, 68, 0.2), 0 0 24px rgba(239, 68, 68, 0.2);
-      animation: downGlow 1.4s ease-in-out infinite;
-    }
-
-    .node.highlight {
-      transform: scale(1.05);
-      box-shadow: 0 0 0 1px rgba(96, 165, 250, 0.75), 0 0 30px rgba(96, 165, 250, 0.45);
-    }
-
-    .node.corrupt {
-      animation: corruptFlash 0.5s ease-in-out 4;
-    }
-
-    .node.integrity-alert {
-      box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.95), 0 0 28px rgba(245, 158, 11, 0.65);
-      animation: integrityPulse 0.8s ease-in-out 3;
-    }
-
-    .node.healed {
-      animation: healPulse 1s ease-in-out 2;
-    }
-
-    @keyframes corruptFlash {
-      0%, 100% { box-shadow: 0 0 0 1px rgba(239, 68, 68, 0.2), 0 0 16px rgba(239, 68, 68, 0.2); }
-      50% { box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.9), 0 0 28px rgba(239, 68, 68, 0.85); }
-    }
-
-    @keyframes integrityPulse {
-      0%, 100% { transform: scale(1); }
-      50% { transform: scale(1.03); }
-    }
-
-    @keyframes healPulse {
-      0% { box-shadow: 0 0 0 1px rgba(34, 197, 94, 0.35), 0 0 8px rgba(34, 197, 94, 0.25); }
-      50% { box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.95), 0 0 32px rgba(34, 197, 94, 0.75); }
-      100% { box-shadow: 0 0 0 1px rgba(34, 197, 94, 0.35), 0 0 8px rgba(34, 197, 94, 0.25); }
-    }
-
-    @keyframes downGlow {
-      0%, 100% { box-shadow: 0 0 0 1px rgba(239, 68, 68, 0.2), 0 0 14px rgba(239, 68, 68, 0.2); }
-      50% { box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.55), 0 0 28px rgba(239, 68, 68, 0.35); }
-    }
-
-    .warn {
-      color: var(--warn);
-      font-size: 0.95rem;
-      display: none;
-    }
-
-    .node.corrupt .warn {
-      display: inline;
-    }
-
-    #user-node { left: 24px; top: 220px; }
-    #lb-node { left: calc(50% - 77px); top: 220px; }
-    #s1-node { right: 24px; top: 42px; }
-    #s2-node { right: 24px; top: 220px; }
-    #s3-node { right: 24px; top: 398px; }
-
-    .packet-layer {
-      position: absolute;
-      inset: 0;
-      z-index: 4;
-      pointer-events: none;
-    }
-
-    .packet {
-      position: absolute;
-      width: 12px;
-      height: 12px;
-      border-radius: 50%;
-      background: #7dd3fc;
-      box-shadow: 0 0 12px #38bdf8;
-      transform: translate(-50%, -50%);
-      transition: left 0.62s linear, top 0.62s linear, opacity 0.2s linear;
-      opacity: 0;
-    }
-
-    .floating-count {
-      position: absolute;
-      color: #93c5fd;
-      font-size: 0.78rem;
-      font-weight: 700;
-      pointer-events: none;
-      z-index: 5;
-      animation: floatUp 1s ease forwards;
-      text-shadow: 0 0 9px rgba(96, 165, 250, 0.65);
-    }
-
-    @keyframes floatUp {
-      0% { opacity: 0; transform: translate(-50%, 0); }
-      15% { opacity: 1; }
-      100% { opacity: 0; transform: translate(-50%, -26px); }
-    }
-
-    .stats {
-      display: grid;
-      grid-template-columns: repeat(4, minmax(110px, 1fr));
-      gap: 10px;
-      margin-bottom: 12px;
-    }
-
-    .stat {
-      background: rgba(255, 255, 255, 0.03);
-      border: 1px solid #28406a;
-      border-radius: 10px;
-      padding: 10px;
-    }
-
-    .label {
-      font-size: 0.75rem;
-      color: var(--muted);
-      margin-bottom: 4px;
-    }
-
-    .value {
-      font-weight: 700;
-      font-size: 1rem;
-    }
-
-    .rr-wrap {
-      margin-top: 8px;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      color: var(--muted);
-      font-size: 0.82rem;
-    }
-
-    .rr-dot {
-      width: 10px;
-      height: 10px;
-      border-radius: 50%;
-      background: #334d7e;
-      border: 1px solid #5373a8;
-      transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
-    }
-
-    .rr-dot.active {
-      background: var(--accent);
-      box-shadow: 0 0 12px rgba(96, 165, 250, 0.8);
-      transform: scale(1.2);
-    }
-
-    .right-panel {
-      display: grid;
-      gap: 12px;
-      grid-template-rows: auto auto 1fr;
-      min-height: 560px;
-    }
-
-    .timeline {
-      border: 1px solid #28406a;
-      border-radius: 10px;
-      background: rgba(255, 255, 255, 0.02);
-      padding: 10px;
-      overflow: hidden;
-    }
-
-    .timeline h3,
-    .controls h3 {
-      margin: 0 0 10px;
-      font-size: 0.96rem;
-    }
-
-    #logs {
-      max-height: 360px;
-      overflow-y: auto;
-      display: grid;
-      gap: 8px;
-      padding-right: 4px;
-    }
-
-    .log {
-      font-size: 0.82rem;
-      color: #d2dcf4;
-      border-left: 2px solid #486aa7;
-      background: rgba(72, 106, 167, 0.13);
-      border-radius: 7px;
-      padding: 7px 9px;
-      line-height: 1.35;
-      word-break: break-word;
-    }
-
-    .controls {
-      border: 1px solid #28406a;
-      border-radius: 10px;
-      padding: 10px;
-      background: rgba(255, 255, 255, 0.02);
-    }
-
-    .integrity {
-      border: 1px solid #28406a;
-      border-radius: 10px;
-      padding: 10px;
-      background: rgba(255, 255, 255, 0.02);
-      min-height: 160px;
-    }
-
-    .integrity h3 {
-      margin: 0 0 10px;
-      font-size: 0.96rem;
-    }
-
-    .integrity-state {
-      font-size: 0.82rem;
-      color: #c4d2f0;
-      margin-bottom: 8px;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-
-    .dot {
-      width: 10px;
-      height: 10px;
-      border-radius: 50%;
-      background: #22c55e;
-      box-shadow: 0 0 12px rgba(34, 197, 94, 0.8);
-    }
-
-    .dot.warn {
-      background: #f59e0b;
-      box-shadow: 0 0 12px rgba(245, 158, 11, 0.8);
-    }
-
-    .integrity-events {
-      display: grid;
-      gap: 8px;
-      max-height: 180px;
-      overflow-y: auto;
-      padding-right: 4px;
-    }
-
-    .integrity-item {
-      font-size: 0.79rem;
-      line-height: 1.35;
-      color: #f1f5ff;
-      border-left: 2px solid #f59e0b;
-      background: rgba(245, 158, 11, 0.12);
-      border-radius: 7px;
-      padding: 7px 9px;
-    }
-
-    .lock-note {
-      margin-top: 8px;
-      font-size: 0.8rem;
-      color: #d1d9ec;
-      display: none;
-      align-items: center;
-      gap: 6px;
-      border: 1px solid rgba(148, 163, 184, 0.4);
-      border-radius: 8px;
-      padding: 7px 8px;
-      background: rgba(148, 163, 184, 0.12);
-    }
-
-    .lock-note.active {
-      display: flex;
-    }
-
-    .lock-icon {
-      display: inline-block;
-      animation: lockPulse 0.6s ease-in-out 3;
-    }
-
-    @keyframes lockPulse {
-      0%, 100% { transform: scale(1); }
-      50% { transform: scale(1.2); }
-    }
-
-    .btns {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 8px;
-      margin-bottom: 8px;
-    }
-
-    button {
-      border: none;
-      border-radius: 8px;
-      padding: 8px;
-      color: #fff;
-      font-weight: 700;
-      cursor: pointer;
-      transition: transform 0.15s ease, filter 0.15s ease;
-    }
-
-    button:hover { transform: translateY(-1px); filter: brightness(1.06); }
-    .fail { background: #dc2626; }
-    .restore { background: #16a34a; }
-
-    #updated {
-      color: var(--muted);
-      font-size: 0.76rem;
-      margin-top: 4px;
-    }
-
-    @media (max-width: 1180px) {
-      .layout { grid-template-columns: 1fr; }
-      .right-panel { min-height: auto; }
-      .topology-wrap { min-height: 620px; }
-      .stats { grid-template-columns: repeat(2, minmax(130px, 1fr)); }
-    }
-  </style>
+  <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
 </head>
-<body>
-  <div class="header">
-    <div class="brand">
-      <img src="{{ url_for('static', filename='logo.png') }}" class="app-logo" alt="MiniMail Logo">
-      <div class="title">MiniMail Distributed System</div>
-    </div>
-    <div class="top-actions">
-      <button id="start-demo" class="demo-btn demo-start" type="button">▶ Start Demo</button>
-      <button id="stop-demo" class="demo-btn demo-stop" type="button" disabled>■ Stop Demo</button>
-      <div id="healing-banner" class="banner">🛡️ Self Healing Active • Healthy 3/3</div>
-    </div>
-  </div>
-
-  <div class="layout">
-    <section class="panel">
-      <div class="stats">
-        <div class="stat"><div class="label">Algorithm</div><div id="algo" class="value">Round Robin</div></div>
-        <div class="stat"><div class="label">Total Messages</div><div id="total" class="value">0</div></div>
-        <div class="stat"><div class="label">Last Routed</div><div id="last-routed" class="value">None</div></div>
-        <div class="stat"><div class="label">Available</div><div id="available" class="value">-</div></div>
+<body class="dashboard-page">
+  <div class="dashboard-shell">
+    <header class="dashboard-header">
+      <div class="dashboard-brand">
+        <img src="{{ url_for('static', filename='logo.png') }}" class="app-logo" alt="MiniMail Logo">
+        <div>
+          <h1 class="dashboard-title">MiniMail Distributed System</h1>
+          <p class="dashboard-subtitle">Real-time load balancer and server health monitor</p>
+        </div>
       </div>
-
-      <div class="rr-wrap">
-        <strong style="color:#d3def7;">🔄 Round Robin</strong>
-        <span id="rr-label">Current index: 0</span>
-        <span class="rr-dot" id="rr-s1"></span><span>S1</span>
-        <span class="rr-dot" id="rr-s2"></span><span>S2</span>
-        <span class="rr-dot" id="rr-s3"></span><span>S3</span>
+      <div class="dashboard-actions">
+        <button id="start-demo" class="demo-btn demo-start" type="button">▶ Start Demo</button>
+        <button id="stop-demo" class="demo-btn demo-stop" type="button" disabled>■ Stop Demo</button>
+        <div id="healing-banner" class="dashboard-banner">🛡️ Self Healing Active • Healthy 3/3</div>
       </div>
+    </header>
 
-      <div class="topology-wrap" id="topology">
-        <svg class="topology-svg" id="lines" viewBox="0 0 1000 620" preserveAspectRatio="none">
-          <line id="line-user-lb" class="line up" x1="140" y1="280" x2="420" y2="280" />
-          <line id="line-lb-s1" class="line up" x1="580" y1="280" x2="850" y2="105" />
-          <line id="line-lb-s2" class="line up" x1="580" y1="280" x2="850" y2="280" />
-          <line id="line-lb-s3" class="line up" x1="580" y1="280" x2="850" y2="460" />
-        </svg>
+    <div class="dashboard-layout">
+      <section class="panel">
+        <div class="stats">
+          <div class="stat"><div class="label">Algorithm</div><div id="algo" class="value">Round Robin</div></div>
+          <div class="stat"><div class="label">Total Messages</div><div id="total" class="value">0</div></div>
+          <div class="stat"><div class="label">Last Routed</div><div id="last-routed" class="value">None</div></div>
+          <div class="stat"><div class="label">Available</div><div id="available" class="value">-</div></div>
+        </div>
 
-        <div class="packet-layer" id="packet-layer"></div>
+        <div class="rr-wrap">
+          <strong class="rr-strong">🔄 Round Robin</strong>
+          <span id="rr-label">Current index: 0</span>
+          <span class="rr-dot" id="rr-s1"></span><span>S1</span>
+          <span class="rr-dot" id="rr-s2"></span><span>S2</span>
+          <span class="rr-dot" id="rr-s3"></span><span>S3</span>
+        </div>
 
-        <div id="user-node" class="node up">
-          <div class="head"><span class="name">User</span><span class="status up">ACTIVE</span></div>
-          <div class="meta">
-            <span>Source Client</span>
-            <span class="latency">Session Live</span>
+        <div class="topology-wrap" id="topology">
+          <svg class="topology-svg" id="lines" viewBox="0 0 1000 620" preserveAspectRatio="none">
+            <line id="line-user-lb" class="line up" x1="140" y1="280" x2="420" y2="280" />
+            <line id="line-lb-s1" class="line up" x1="580" y1="280" x2="850" y2="105" />
+            <line id="line-lb-s2" class="line up" x1="580" y1="280" x2="850" y2="280" />
+            <line id="line-lb-s3" class="line up" x1="580" y1="280" x2="850" y2="460" />
+          </svg>
+
+          <div class="packet-layer" id="packet-layer"></div>
+
+          <div id="user-node" class="node up">
+            <div class="head"><span class="name">User</span><span class="status up">ACTIVE</span></div>
+            <div class="meta">
+              <span>Source Client</span>
+              <span class="latency">Session Live</span>
+            </div>
+          </div>
+
+          <div id="lb-node" class="node up">
+            <div class="head"><span class="name">Load Balancer</span><span class="status up">UP</span></div>
+            <div class="meta">
+              <span id="lb-index">Current Index: 0</span>
+              <span class="latency" id="lb-latency">Polling: 2s</span>
+            </div>
+          </div>
+
+          <div id="s1-node" class="node up server-node">
+            <div class="head"><span class="name">S1 <span class="warn">⚠</span></span><span id="s1-status" class="status up">UP</span></div>
+            <div class="meta"><span>Messages: <strong id="s1-count">0</strong></span><span class="latency" id="s1-latency">⚡ n/a</span></div>
+          </div>
+
+          <div id="s2-node" class="node up server-node">
+            <div class="head"><span class="name">S2 <span class="warn">⚠</span></span><span id="s2-status" class="status up">UP</span></div>
+            <div class="meta"><span>Messages: <strong id="s2-count">0</strong></span><span class="latency" id="s2-latency">⚡ n/a</span></div>
+          </div>
+
+          <div id="s3-node" class="node up server-node">
+            <div class="head"><span class="name">S3 <span class="warn">⚠</span></span><span id="s3-status" class="status up">UP</span></div>
+            <div class="meta"><span>Messages: <strong id="s3-count">0</strong></span><span class="latency" id="s3-latency">⚡ n/a</span></div>
           </div>
         </div>
+      </section>
 
-        <div id="lb-node" class="node up">
-          <div class="head"><span class="name">Load Balancer</span><span class="status up">UP</span></div>
-          <div class="meta">
-            <span id="lb-index">Current Index: 0</span>
-            <span class="latency" id="lb-latency">Polling: 2s</span>
+      <section class="panel right-panel">
+        <div class="timeline">
+          <h3>Event Log Timeline (Last 20)</h3>
+          <div id="logs"></div>
+        </div>
+
+        <div class="integrity">
+          <h3>Integrity Monitor</h3>
+          <div class="integrity-state">
+            <span id="integrity-dot" class="dot"></span>
+            <span id="integrity-status">System integrity stable</span>
           </div>
+          <div id="integrity-events" class="integrity-events"></div>
+          <div id="lock-note" class="lock-note"><span class="lock-icon">🔒</span> READ messages are locked from edits</div>
         </div>
 
-        <div id="s1-node" class="node up server-node">
-          <div class="head"><span class="name">S1 <span class="warn">⚠</span></span><span id="s1-status" class="status up">UP</span></div>
-          <div class="meta"><span>Messages: <strong id="s1-count">0</strong></span><span class="latency" id="s1-latency">⚡ n/a</span></div>
+        <div class="controls">
+          <h3>Server Controls</h3>
+          <div class="btns"><button class="fail" onclick="postAction('/fail/S1')">Fail S1</button><button class="restore" onclick="postAction('/restore/S1')">Restore S1</button></div>
+          <div class="btns"><button class="fail" onclick="postAction('/fail/S2')">Fail S2</button><button class="restore" onclick="postAction('/restore/S2')">Restore S2</button></div>
+          <div class="btns"><button class="fail" onclick="postAction('/fail/S3')">Fail S3</button><button class="restore" onclick="postAction('/restore/S3')">Restore S3</button></div>
+          <div id="updated">Last updated: -</div>
         </div>
-
-        <div id="s2-node" class="node up server-node">
-          <div class="head"><span class="name">S2 <span class="warn">⚠</span></span><span id="s2-status" class="status up">UP</span></div>
-          <div class="meta"><span>Messages: <strong id="s2-count">0</strong></span><span class="latency" id="s2-latency">⚡ n/a</span></div>
-        </div>
-
-        <div id="s3-node" class="node up server-node">
-          <div class="head"><span class="name">S3 <span class="warn">⚠</span></span><span id="s3-status" class="status up">UP</span></div>
-          <div class="meta"><span>Messages: <strong id="s3-count">0</strong></span><span class="latency" id="s3-latency">⚡ n/a</span></div>
-        </div>
-      </div>
-    </section>
-
-    <section class="panel right-panel">
-      <div class="timeline">
-        <h3>Event Log Timeline (Last 20)</h3>
-        <div id="logs"></div>
-      </div>
-
-      <div class="integrity">
-        <h3>Integrity Monitor</h3>
-        <div class="integrity-state">
-          <span id="integrity-dot" class="dot"></span>
-          <span id="integrity-status">System integrity stable</span>
-        </div>
-        <div id="integrity-events" class="integrity-events"></div>
-        <div id="lock-note" class="lock-note"><span class="lock-icon">🔒</span> READ messages are locked from edits</div>
-      </div>
-
-      <div class="controls">
-        <h3>Server Controls</h3>
-        <div class="btns"><button class="fail" onclick="postAction('/fail/S1')">Fail S1</button><button class="restore" onclick="postAction('/restore/S1')">Restore S1</button></div>
-        <div class="btns"><button class="fail" onclick="postAction('/fail/S2')">Fail S2</button><button class="restore" onclick="postAction('/restore/S2')">Restore S2</button></div>
-        <div class="btns"><button class="fail" onclick="postAction('/fail/S3')">Fail S3</button><button class="restore" onclick="postAction('/restore/S3')">Restore S3</button></div>
-        <div id="updated">Last updated: -</div>
-      </div>
-    </section>
+      </section>
+    </div>
   </div>
 
   <script>

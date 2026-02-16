@@ -9,42 +9,40 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black">
   <title>Login</title>
-  <style>
-    body { font-family: Arial, sans-serif; background:#f4f6f8; margin:0; padding:24px; }
-    .topbar { max-width:420px; margin:0 auto 10px; display:flex; align-items:center; }
-    .app-logo {
-      height: 40px;
-      width: auto;
-      margin-right: 10px;
-      vertical-align: middle;
-    }
-    .app-title { font-size:1rem; font-weight:700; color:#111827; }
-    .card { max-width:420px; margin:40px auto; background:#fff; border:1px solid #d1d5db; border-radius:10px; padding:18px; }
-    h2 { margin-top:0; }
-    label { display:block; margin-top:10px; font-weight:600; }
-    input { width:100%; padding:9px; margin-top:6px; border:1px solid #d1d5db; border-radius:6px; box-sizing:border-box; }
-    button { margin-top:14px; width:100%; padding:10px; border:none; border-radius:6px; background:#2563eb; color:#fff; font-weight:700; cursor:pointer; }
-    a { color:#2563eb; text-decoration:none; }
-  </style>
+  <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
 </head>
-<body>
-  <div class="topbar">
-    <img src="{{ url_for('static', filename='logo.png') }}" class="app-logo" alt="MiniMail Logo">
-    <div class="app-title">MiniMail Distributed System</div>
-  </div>
-  <div class="card">
-    <h2>User Login</h2>
-    <form method="post" action="/login">
-      <label for="username">Username</label>
-      <input id="username" name="username" required />
+<body class="auth-page">
+  <div class="auth-shell">
+    <div class="auth-brand">
+      <img src="{{ url_for('static', filename='logo.png') }}" class="app-logo" alt="MiniMail Logo">
+      <h1>MiniMail Distributed System</h1>
+    </div>
 
-      <label for="password">Password</label>
-      <input id="password" name="password" type="password" required />
+    <main class="auth-card" aria-labelledby="login-title">
+      <h2 id="login-title">Welcome back</h2>
+      <p class="auth-subtitle">Sign in to access your distributed mailbox.</p>
 
-      <button type="submit">Login</button>
-    </form>
-    <p>New user? <a href="/register">Create account</a></p>
-    <p><a href="/dashboard">Open admin dashboard</a></p>
+      <form method="post" action="/login">
+        <div class="form-group">
+          <label for="username">Username</label>
+          <input id="username" name="username" required autocomplete="username" placeholder="Enter username" />
+        </div>
+
+        <div class="form-group">
+          <label for="password">Password</label>
+          <input id="password" name="password" type="password" required autocomplete="current-password" placeholder="Enter password" />
+        </div>
+
+        <div class="auth-actions">
+          <button class="btn btn-primary" type="submit">Login</button>
+        </div>
+      </form>
+
+      <div class="auth-links">
+        <span>New user? <a href="/register">Create account</a></span>
+        <span><a href="/dashboard">Open admin dashboard</a></span>
+      </div>
+    </main>
   </div>
   <script>
     if ("serviceWorker" in navigator) {
