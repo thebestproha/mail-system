@@ -71,6 +71,21 @@ def init_db() -> None:
             cursor.execute(
                 "ALTER TABLE messages ADD COLUMN IF NOT EXISTS hidden_for_receiver BOOLEAN DEFAULT FALSE"
             )
+            cursor.execute(
+                "ALTER TABLE messages ADD COLUMN IF NOT EXISTS subject TEXT DEFAULT ''"
+            )
+            cursor.execute(
+                "ALTER TABLE messages ADD COLUMN IF NOT EXISTS is_starred BOOLEAN DEFAULT FALSE"
+            )
+            cursor.execute(
+                "ALTER TABLE messages ADD COLUMN IF NOT EXISTS is_spam BOOLEAN DEFAULT FALSE"
+            )
+            cursor.execute(
+                "ALTER TABLE messages ADD COLUMN IF NOT EXISTS deleted_for_sender BOOLEAN DEFAULT FALSE"
+            )
+            cursor.execute(
+                "ALTER TABLE messages ADD COLUMN IF NOT EXISTS deleted_for_receiver BOOLEAN DEFAULT FALSE"
+            )
 
         connection.commit()
         db_schema_initialized = True
@@ -101,6 +116,7 @@ def receive_message():
     message_id = payload.get("id")
     sender = payload.get("sender")
     receiver = payload.get("receiver")
+    subject = payload.get("subject", "")
     content = payload.get("content", "")
 
     checksum = hashlib.md5(content.encode()).hexdigest()
@@ -111,10 +127,10 @@ def receive_message():
             cursor.execute(
                 """
                 INSERT INTO messages
-                (id, sender, receiver, content, status, checksum, server_id)
-                VALUES (%s, %s, %s, %s, 'UNREAD', %s, %s)
+                (id, sender, receiver, subject, content, status, checksum, server_id)
+                VALUES (%s, %s, %s, %s, %s, 'UNREAD', %s, %s)
                 """,
-                (message_id, sender, receiver, content, checksum, SERVER_ID),
+                (message_id, sender, receiver, subject, content, checksum, SERVER_ID),
             )
         connection.commit()
     except psycopg2.IntegrityError:

@@ -8,584 +8,564 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black">
-  <title>User Home</title>
+  <title>MiniMail Hybrid Client</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
+  <style>
+    .hybrid-topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--border);
+      background: color-mix(in srgb, var(--bg-secondary) 80%, transparent);
+      backdrop-filter: blur(6px);
+      position: sticky;
+      top: 0;
+      z-index: 3;
+    }
+
+    .source-toggle {
+      display: inline-flex;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      overflow: hidden;
+      background: var(--bg-secondary);
+    }
+
+    .source-toggle button {
+      border: none;
+      background: transparent;
+      color: var(--text-secondary);
+      padding: 8px 14px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all var(--transition-fast);
+    }
+
+    .source-toggle button.active {
+      background: var(--accent);
+      color: #fff;
+    }
+
+    .mail-layout {
+      display: grid;
+      grid-template-columns: 260px 1fr;
+      min-height: 100vh;
+    }
+
+    .folder-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .folder-btn {
+      width: 100%;
+      text-align: left;
+      border: 1px solid transparent;
+      background: transparent;
+      color: var(--text-primary);
+      padding: 10px 12px;
+      border-radius: 10px;
+      cursor: pointer;
+      transition: all var(--transition-fast);
+      font-weight: 600;
+    }
+
+    .folder-btn.active,
+    .folder-btn:hover {
+      border-color: var(--border);
+      background: color-mix(in srgb, var(--bg-secondary) 76%, transparent);
+    }
+
+    .hybrid-main {
+      display: grid;
+      grid-template-columns: minmax(300px, 420px) 1fr;
+      min-height: calc(100vh - 67px);
+    }
+
+    .mail-list-panel,
+    .mail-detail-panel {
+      transition: all var(--transition-fast);
+    }
+
+    .message-card {
+      border-radius: 14px;
+    }
+
+    .compose-modal-bg {
+      position: fixed;
+      inset: 0;
+      background: rgba(2, 8, 23, 0.55);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 50;
+      padding: 20px;
+    }
+
+    .compose-modal-bg.open {
+      display: flex;
+    }
+
+    .compose-modal {
+      width: min(620px, 100%);
+      border-radius: 16px;
+      border: 1px solid var(--border);
+      background: var(--bg-secondary);
+      box-shadow: var(--shadow-md);
+      transform: translateY(6px);
+      animation: composeIn 0.2s ease forwards;
+    }
+
+    @keyframes composeIn {
+      to {
+        transform: translateY(0);
+      }
+    }
+
+    .toast {
+      position: fixed;
+      right: 16px;
+      bottom: 16px;
+      padding: 10px 14px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: var(--bg-secondary);
+      box-shadow: var(--shadow-md);
+      font-size: 0.9rem;
+      opacity: 0;
+      transform: translateY(8px);
+      pointer-events: none;
+      transition: opacity .2s ease, transform .2s ease;
+      z-index: 60;
+    }
+
+    .toast.show {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    @media (max-width: 1080px) {
+      .hybrid-main {
+        grid-template-columns: 1fr;
+      }
+
+      .mail-detail-panel {
+        border-top: 1px solid var(--border);
+      }
+    }
+  </style>
 </head>
 <body class="mail-page">
-  <aside class="mail-sidebar">
-    <div class="mail-brand">
-      <img src="{{ url_for('static', filename='image.png') }}" class="app-logo" alt="MiniMail Logo">
-      <h1>MiniMail<br>Distributed System</h1>
-    </div>
+  <div class="mail-layout">
+    <aside class="mail-sidebar">
+      <div class="mail-brand">
+        <img src="{{ url_for('static', filename='image.png') }}" class="app-logo" alt="MiniMail Logo">
+        <h1>MiniMail<br>Hybrid Mail</h1>
+      </div>
 
-    <button id="open-compose" class="btn btn-primary compose-btn" type="button">✉ Compose</button>
+      <button id="compose-open" class="btn btn-primary compose-btn" type="button">✉ Compose</button>
 
-    <nav class="mail-nav" aria-label="Mailbox">
-      <button id="nav-inbox" class="btn nav-btn active" type="button">Inbox</button>
-      <button id="nav-sent" class="btn nav-btn" type="button">Sent</button>
-      <button id="connect-gmail" class="btn nav-btn" type="button">Connect Gmail</button>
-      <button id="send-gmail" class="btn nav-btn" type="button" style="display:none;">Send via Gmail</button>
-      <button id="logout-gmail" class="btn nav-btn" type="button" style="display:none;">Disconnect Gmail</button>
+      <div class="folder-list" aria-label="Folders">
+        <button class="folder-btn active" data-folder="inbox" type="button">Inbox</button>
+        <button class="folder-btn" data-folder="sent" type="button">Sent</button>
+        <button class="folder-btn" data-folder="starred" type="button">Starred</button>
+        <button class="folder-btn" data-folder="trash" type="button">Trash</button>
+        <button class="folder-btn" data-folder="junk" type="button">Junk</button>
+      </div>
+
       <a class="btn nav-btn" href="/login">Logout</a>
-    </nav>
 
-    <div class="mail-user">
-      Logged in as<br>
-      <strong id="current-user"></strong>
-    </div>
-  </aside>
+      <div class="mail-user">
+        Logged in as<br>
+        <strong id="current-user"></strong>
+      </div>
+    </aside>
 
-  <main class="mail-main">
-    <section class="mail-list-panel">
-      <div class="panel-head">
-        <h2 id="mailbox-title">Inbox</h2>
+    <div>
+      <header class="hybrid-topbar">
+        <div class="source-toggle" role="group" aria-label="Source Toggle">
+          <button id="source-internal" class="active" type="button">Internal Mail</button>
+          <button id="source-external" type="button">External Mail</button>
+        </div>
         <div class="panel-tools">
           <button id="refresh-btn" class="btn btn-ghost" type="button">Refresh</button>
-          <button id="clear-btn" class="btn btn-danger" type="button">Clear</button>
+          <button id="empty-trash-btn" class="btn btn-danger" type="button" style="display:none;">Empty Trash</button>
+          <button id="connect-gmail" class="btn btn-ghost" type="button">Connect Gmail</button>
         </div>
-      </div>
+      </header>
 
-      <div id="message-list" class="message-list" aria-live="polite"></div>
-
-      <div class="sr-only">
-        <button id="refresh-inbox" type="button">Refresh Inbox</button>
-        <button id="clear-inbox" type="button">Clear Inbox History</button>
-        <button id="refresh-sent" type="button">Refresh Sent</button>
-        <button id="clear-sent" type="button">Clear Sent History</button>
-      </div>
-    </section>
-
-    <section class="mail-detail-panel">
-      <article class="detail-card">
-        <div class="detail-head">
-          <div>
-            <h3 id="detail-title">Select a message</h3>
-            <div id="detail-meta" class="detail-meta"></div>
+      <main class="hybrid-main">
+        <section class="mail-list-panel">
+          <div class="panel-head">
+            <h2 id="folder-title">Inbox</h2>
+            <div id="list-status" class="message-feedback"></div>
           </div>
-          <div id="detail-status"></div>
-        </div>
+          <div id="message-list" class="message-list" aria-live="polite"></div>
+        </section>
 
-        <div id="detail-content" class="detail-content detail-empty">Choose a message from the list to view details.</div>
+        <section class="mail-detail-panel">
+          <article class="detail-card">
+            <div class="detail-head">
+              <div>
+                <h3 id="detail-subject">Select a message</h3>
+                <div id="detail-meta" class="detail-meta"></div>
+              </div>
+              <div id="detail-status"></div>
+            </div>
 
-        <div id="detail-actions" class="detail-actions"></div>
-
-        <div id="action-result" class="message-feedback" role="status" aria-live="polite"></div>
-      </article>
-    </section>
-
-    <section class="mail-list-panel">
-      <div class="panel-head">
-        <h2>Gmail Inbox</h2>
-        <div class="panel-tools">
-          <button id="gmail-refresh" class="btn btn-ghost" type="button">Refresh Gmail</button>
-        </div>
-      </div>
-      <div id="gmail-status" class="message-feedback" role="status" aria-live="polite"></div>
-      <div id="gmail-inbox-list" class="message-list" aria-live="polite"></div>
-    </section>
-  </main>
-
-  <section id="compose-panel" class="compose-panel" aria-label="Compose message">
-    <div class="compose-head">
-      <h3>New Message</h3>
-      <button id="close-compose" class="btn btn-ghost" type="button">Close</button>
+            <div id="detail-content" class="detail-content detail-empty">Choose a message to view details.</div>
+            <div id="detail-actions" class="detail-actions"></div>
+            <div id="detail-result" class="message-feedback" role="status" aria-live="polite"></div>
+          </article>
+        </section>
+      </main>
     </div>
+  </div>
 
-    <div class="compose-body">
-      <div class="form-group">
-        <label for="receiver">Receiver</label>
-        <input id="receiver" placeholder="Recipient username" />
+  <div id="compose-modal-bg" class="compose-modal-bg" aria-hidden="true">
+    <div class="compose-modal">
+      <div class="compose-head">
+        <h3>Compose Message</h3>
+        <button id="compose-close" class="btn btn-ghost" type="button">Close</button>
       </div>
-
-      <div class="form-group">
-        <label for="content">Message</label>
-        <textarea id="content" placeholder="Write your message"></textarea>
-      </div>
-
-      <div class="compose-foot">
-        <div id="send-result" class="message-feedback" role="status" aria-live="polite"></div>
-        <button id="send-btn" class="btn btn-primary" type="button">Send</button>
+      <div class="compose-body">
+        <div class="form-group">
+          <label for="compose-to">To</label>
+          <input id="compose-to" placeholder="user@editmail.com or email@gmail.com" />
+        </div>
+        <div class="form-group">
+          <label for="compose-subject">Subject</label>
+          <input id="compose-subject" placeholder="Subject" />
+        </div>
+        <div class="form-group">
+          <label for="compose-body">Body</label>
+          <textarea id="compose-body" placeholder="Write your message"></textarea>
+        </div>
+        <div class="compose-foot">
+          <div id="compose-result" class="message-feedback" role="status" aria-live="polite"></div>
+          <button id="compose-send" class="btn btn-primary" type="button">Send</button>
+        </div>
       </div>
     </div>
-  </section>
+  </div>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
   <script>
     const params = new URLSearchParams(window.location.search);
     const username = params.get("username") || "";
     document.getElementById("current-user").textContent = username || "Unknown";
+
     const state = {
-      currentBox: "inbox",
-      inbox: [],
-      sent: [],
+      source: "internal",
+      folder: "inbox",
+      messages: [],
       selectedId: null,
+      gmailConnected: false,
     };
 
-    const composePanel = document.getElementById("compose-panel");
-    let gmailConnected = false;
+    function showToast(text) {
+      const toast = document.getElementById("toast");
+      toast.textContent = text;
+      toast.classList.add("show");
+      setTimeout(() => toast.classList.remove("show"), 2200);
+    }
 
     function setFeedback(target, message, type = "") {
       target.textContent = message || "";
       target.className = `message-feedback${type ? ` ${type}` : ""}`;
     }
 
-    function openCompose() {
-      composePanel.classList.add("open");
-      document.getElementById("receiver").focus();
+    function statusBadge(status) {
+      const value = String(status || "UNREAD").toUpperCase();
+      const cls = value === "READ" ? "status-read" : "status-unread";
+      return `<span class="pill ${cls}">${value}</span>`;
     }
 
-    function closeCompose() {
-      composePanel.classList.remove("open");
+    function activeMessage() {
+      return state.messages.find((m) => String(m.id) === String(state.selectedId)) || null;
     }
 
-    function useBox(box) {
-      state.currentBox = box;
+    function setFolder(folder) {
+      state.folder = folder;
       state.selectedId = null;
-      document.getElementById("mailbox-title").textContent = box === "inbox" ? "Inbox" : "Sent";
-      document.getElementById("nav-inbox").classList.toggle("active", box === "inbox");
-      document.getElementById("nav-sent").classList.toggle("active", box === "sent");
-      renderCurrentList();
-      renderSelectedMessage();
+      document.getElementById("folder-title").textContent = folder[0].toUpperCase() + folder.slice(1);
+      document.querySelectorAll(".folder-btn").forEach((button) => {
+        button.classList.toggle("active", button.dataset.folder === folder);
+      });
+      document.getElementById("empty-trash-btn").style.display = folder === "trash" ? "inline-flex" : "none";
+      loadMessages();
     }
 
-    function previewText(content) {
-      return String(content || "").replace(/\n/g, " ").slice(0, 96) || "No content";
+    async function checkGmailConnection() {
+      try {
+        const response = await fetch(`/gmail/status?username=${encodeURIComponent(username)}`);
+        const data = await response.json();
+        state.gmailConnected = Boolean(data.connected);
+        document.getElementById("connect-gmail").textContent = state.gmailConnected ? "Gmail Connected" : "Connect Gmail";
+      } catch {
+        document.getElementById("connect-gmail").textContent = "Connect Gmail";
+      }
     }
 
-    function updateGmailControls() {
-      document.getElementById("send-gmail").style.display = gmailConnected ? "block" : "none";
-      document.getElementById("logout-gmail").style.display = gmailConnected ? "block" : "none";
+    async function loadMessages() {
+      const status = document.getElementById("list-status");
+      setFeedback(status, "Loading...");
+      try {
+        const response = await fetch(`/mail/list?username=${encodeURIComponent(username)}&source=${encodeURIComponent(state.source)}&folder=${encodeURIComponent(state.folder)}`);
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "failed to load messages");
+        state.messages = data.messages || [];
+        renderList();
+        renderDetail();
+        setFeedback(status, `${state.messages.length} messages`);
+      } catch (error) {
+        state.messages = [];
+        renderList();
+        renderDetail();
+        setFeedback(status, error.message, "error");
+      }
     }
 
-    function renderGmailInbox(messages) {
-      const list = document.getElementById("gmail-inbox-list");
+    function renderList() {
+      const list = document.getElementById("message-list");
       list.innerHTML = "";
-
-      if (!messages.length) {
+      if (!state.messages.length) {
         const empty = document.createElement("div");
         empty.className = "message-card";
-        empty.innerHTML = `<p class="message-title">No Gmail messages</p><p class="message-preview">Connect Gmail and refresh to see recent messages.</p>`;
+        empty.innerHTML = `<p class="message-title">No messages</p><p class="message-preview">Nothing in ${state.folder}.</p>`;
         list.appendChild(empty);
         return;
       }
 
-      for (const message of messages) {
+      for (const message of state.messages) {
         const card = document.createElement("article");
-        card.className = "message-card";
+        card.className = `message-card${String(message.id) === String(state.selectedId) ? " active" : ""}`;
         card.innerHTML = `
           <div class="message-row">
             <p class="message-title">${message.subject || "(No subject)"}</p>
-            <p class="message-time">#${message.id || "-"}</p>
+            <p class="message-time">${message.timestamp_sent || ""}</p>
           </div>
-          <p class="message-preview">From: ${message.sender || "Unknown"}</p>
-          <p class="message-preview">${message.snippet || ""}</p>
+          <div class="message-row">
+            ${statusBadge(message.status)}
+            <span class="message-time">${message.sender || message.receiver || ""}</span>
+          </div>
+          <p class="message-preview">${message.content || message.snippet || ""}</p>
         `;
+        card.addEventListener("click", () => {
+          state.selectedId = message.id;
+          renderList();
+          renderDetail();
+        });
         list.appendChild(card);
       }
     }
 
-    async function loadGmailStatus() {
-      const status = document.getElementById("gmail-status");
-      if (!username) {
-        gmailConnected = false;
-        updateGmailControls();
-        setFeedback(status, "Log in to connect Gmail.");
-        return;
-      }
-
-      try {
-        const response = await fetch(`/gmail/status?username=${encodeURIComponent(username)}`);
-        const data = await response.json();
-        gmailConnected = Boolean(data.connected);
-        updateGmailControls();
-        if (!data.oauth_configured) {
-          setFeedback(status, "Google OAuth env vars are missing on server.", "error");
-          return;
-        }
-        setFeedback(status, gmailConnected ? "Gmail connected" : "Gmail not connected");
-      } catch (error) {
-        gmailConnected = false;
-        updateGmailControls();
-        setFeedback(status, "Unable to read Gmail status", "error");
-      }
-    }
-
-    async function loadGmailInbox() {
-      const status = document.getElementById("gmail-status");
-      if (!username) {
-        renderGmailInbox([]);
-        return;
-      }
-
-      try {
-        const response = await fetch(`/gmail/inbox?username=${encodeURIComponent(username)}`);
-        const data = await response.json();
-        if (!response.ok) {
-          throw new Error(data.error || "Unable to fetch Gmail inbox");
-        }
-        renderGmailInbox(data.messages || []);
-      } catch (error) {
-        renderGmailInbox([]);
-        setFeedback(status, error.message, "error");
-      }
-    }
-
-    async function sendViaGmail() {
-      const status = document.getElementById("gmail-status");
-      const to = window.prompt("Recipient email address");
-      if (to === null) return;
-      const subject = window.prompt("Subject");
-      if (subject === null) return;
-      const body = window.prompt("Message body");
-      if (body === null) return;
-
-      try {
-        const response = await fetch("/gmail/send", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ username, to, subject, body })
-        });
-        const data = await response.json();
-        if (!response.ok) {
-          throw new Error(data.error || "Gmail send failed");
-        }
-        setFeedback(status, "Email sent via Gmail", "success");
-        await loadGmailInbox();
-      } catch (error) {
-        setFeedback(status, error.message, "error");
-      }
-    }
-
-    async function disconnectGmail() {
-      const status = document.getElementById("gmail-status");
-      try {
-        const response = await fetch("/gmail/logout", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ username })
-        });
-        const data = await response.json();
-        if (!response.ok) {
-          throw new Error(data.error || "Disconnect failed");
-        }
-        gmailConnected = false;
-        updateGmailControls();
-        renderGmailInbox([]);
-        setFeedback(status, "Gmail disconnected", "success");
-      } catch (error) {
-        setFeedback(status, error.message, "error");
-      }
-    }
-
-    function activeMessages() {
-      return state.currentBox === "inbox" ? state.inbox : state.sent;
-    }
-
-    function selectedMessage() {
-      return activeMessages().find((message) => String(message.id) === String(state.selectedId)) || null;
-    }
-
-    function statusBadge(status) {
-      const normalized = String(status || "").toUpperCase();
-      const cls = normalized === "READ" ? "status-read" : "status-unread";
-      return `<span class="pill ${cls}">${normalized || "UNKNOWN"}</span>`;
-    }
-
-    function renderCurrentList() {
-      const container = document.getElementById("message-list");
-      const messages = activeMessages();
-      container.innerHTML = "";
-
-      if (!messages.length) {
-        const empty = document.createElement("div");
-        empty.className = "message-card";
-        empty.innerHTML = `<p class="message-title">No messages</p><p class="message-preview">Nothing to display in ${state.currentBox}.</p>`;
-        container.appendChild(empty);
-        return;
-      }
-
-      for (const message of messages) {
-        const card = document.createElement("article");
-        card.className = `message-card${String(message.id) === String(state.selectedId) ? " active" : ""}`;
-        const title = state.currentBox === "inbox"
-          ? `From: ${message.sender || "-"}`
-          : `To: ${message.receiver || "-"}`;
-
-        card.innerHTML = `
-          <div class="message-row">
-            <p class="message-title">${title}</p>
-            <p class="message-time">${message.timestamp_sent || "-"}</p>
-          </div>
-          <div class="message-row">
-            ${statusBadge(message.status)}
-            <span class="message-time">#${message.id}</span>
-          </div>
-          <p class="message-preview">${previewText(message.content)}</p>
-        `;
-
-        card.addEventListener("click", () => {
-          state.selectedId = message.id;
-          renderCurrentList();
-          renderSelectedMessage();
-        });
-
-        container.appendChild(card);
-      }
-    }
-
-    function renderSelectedMessage() {
-      const message = selectedMessage();
-      const title = document.getElementById("detail-title");
+    function renderDetail() {
+      const message = activeMessage();
+      const subject = document.getElementById("detail-subject");
       const meta = document.getElementById("detail-meta");
       const status = document.getElementById("detail-status");
       const content = document.getElementById("detail-content");
       const actions = document.getElementById("detail-actions");
 
       if (!message) {
-        title.textContent = "Select a message";
+        subject.textContent = "Select a message";
         meta.innerHTML = "";
         status.innerHTML = "";
         content.className = "detail-content detail-empty";
-        content.textContent = "Choose a message from the list to view details.";
+        content.textContent = "Choose a message to view details.";
         actions.innerHTML = "";
         return;
       }
 
-      title.textContent = state.currentBox === "inbox"
-        ? `From ${message.sender || "-"}`
-        : `To ${message.receiver || "-"}`;
+      subject.textContent = message.subject || "(No subject)";
       meta.innerHTML = `
-        <span>ID: ${message.id}</span>
-        <span>Server: ${message.server_id || "-"}</span>
-        <span>Timestamp: ${message.timestamp_sent || "-"}</span>
+        <span>From: ${message.sender || "-"}</span>
+        <span>To: ${message.receiver || "-"}</span>
+        <span>ID: ${message.id || "-"}</span>
       `;
       status.innerHTML = statusBadge(message.status);
       content.className = "detail-content";
-      content.textContent = message.content || "";
+      content.textContent = message.content || message.snippet || "";
+
       actions.innerHTML = "";
 
-      if (state.currentBox === "sent" && String(message.status || "").toUpperCase() === "UNREAD") {
-        const editButton = document.createElement("button");
-        editButton.className = "btn btn-primary";
-        editButton.type = "button";
-        editButton.textContent = "Edit";
-        editButton.addEventListener("click", () => editSentMessage(message.id, message.content || ""));
+      const starBtn = document.createElement("button");
+      starBtn.className = "btn btn-ghost";
+      starBtn.type = "button";
+      starBtn.textContent = message.is_starred ? "Unstar" : "Star";
+      starBtn.addEventListener("click", () => updateStar(message));
+      actions.appendChild(starBtn);
 
-        const deleteButton = document.createElement("button");
-        deleteButton.className = "btn btn-danger";
-        deleteButton.type = "button";
-        deleteButton.textContent = "Delete";
-        deleteButton.addEventListener("click", () => deleteSentMessage(message.id));
+      const spamBtn = document.createElement("button");
+      spamBtn.className = "btn btn-ghost";
+      spamBtn.type = "button";
+      spamBtn.textContent = message.is_spam ? "Not Junk" : "Mark Junk";
+      spamBtn.addEventListener("click", () => updateSpam(message));
+      actions.appendChild(spamBtn);
 
-        actions.appendChild(editButton);
-        actions.appendChild(deleteButton);
-      }
+      const trashBtn = document.createElement("button");
+      trashBtn.className = "btn btn-danger";
+      trashBtn.type = "button";
+      trashBtn.textContent = "Move to Trash";
+      trashBtn.addEventListener("click", () => moveToTrash(message));
+      actions.appendChild(trashBtn);
     }
 
-    async function editSentMessage(messageId, currentContent) {
-      const actionResult = document.getElementById("action-result");
-      const updatedContent = window.prompt("Edit message content", currentContent);
-
-      if (updatedContent === null) {
-        return;
-      }
-
+    async function updateStar(message) {
+      const result = document.getElementById("detail-result");
       try {
-        const response = await fetch(`/edit-message/${encodeURIComponent(messageId)}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ content: updatedContent })
-        });
-
-        const data = await response.json();
-        if (!response.ok) {
-          throw new Error(data.error || "edit failed");
-        }
-
-        setFeedback(actionResult, `edited message ${messageId}`, "success");
-        await loadSent();
-      } catch (error) {
-        setFeedback(actionResult, error.message, "error");
-      }
-    }
-
-    async function deleteSentMessage(messageId) {
-      const actionResult = document.getElementById("action-result");
-      const confirmed = window.confirm(`Delete message ${messageId}?`);
-      if (!confirmed) {
-        return;
-      }
-
-      try {
-        const response = await fetch(`/delete-message/${encodeURIComponent(messageId)}`, {
-          method: "DELETE"
-        });
-
-        const data = await response.json();
-        if (!response.ok) {
-          throw new Error(data.error || "delete failed");
-        }
-
-        setFeedback(actionResult, `deleted message ${messageId}`, "success");
-        await loadSent();
-      } catch (error) {
-        setFeedback(actionResult, error.message, "error");
-      }
-    }
-
-    async function clearSentHistory() {
-      const actionResult = document.getElementById("action-result");
-      if (!username) {
-        return;
-      }
-
-      const confirmed = window.confirm("Clear all sent history for this user?");
-      if (!confirmed) {
-        return;
-      }
-
-      try {
-        const response = await fetch(`/sent-history/${encodeURIComponent(username)}`, {
-          method: "DELETE"
-        });
-
-        const data = await response.json();
-        if (!response.ok) {
-          throw new Error(data.error || "clear history failed");
-        }
-
-        setFeedback(actionResult, `cleared ${data.deleted || 0} sent messages`, "success");
-        await loadSent();
-      } catch (error) {
-        setFeedback(actionResult, error.message, "error");
-      }
-    }
-
-    async function clearInboxHistory() {
-      const actionResult = document.getElementById("action-result");
-      if (!username) {
-        return;
-      }
-
-      const confirmed = window.confirm("Clear all inbox history for this user?");
-      if (!confirmed) {
-        return;
-      }
-
-      try {
-        const response = await fetch(`/inbox-history/${encodeURIComponent(username)}`, {
-          method: "DELETE"
-        });
-
-        const data = await response.json();
-        if (!response.ok) {
-          throw new Error(data.error || "clear inbox failed");
-        }
-
-        setFeedback(actionResult, `cleared ${data.deleted || 0} inbox messages`, "success");
-        await loadInbox();
-      } catch (error) {
-        setFeedback(actionResult, error.message, "error");
-      }
-    }
-
-    async function loadInbox() {
-      if (!username) return;
-      const response = await fetch(`/inbox/${encodeURIComponent(username)}`);
-      state.inbox = await response.json();
-      if (state.currentBox === "inbox") {
-        renderCurrentList();
-        renderSelectedMessage();
-      }
-    }
-
-    async function loadSent() {
-      if (!username) return;
-      const response = await fetch(`/sent/${encodeURIComponent(username)}`);
-      state.sent = await response.json();
-      if (state.currentBox === "sent") {
-        renderCurrentList();
-        renderSelectedMessage();
-      }
-    }
-
-    async function refreshCurrentBox() {
-      if (state.currentBox === "inbox") {
-        await loadInbox();
-        return;
-      }
-      await loadSent();
-    }
-
-    async function clearCurrentBox() {
-      if (state.currentBox === "inbox") {
-        await clearInboxHistory();
-        return;
-      }
-      await clearSentHistory();
-    }
-
-    async function sendMessage() {
-      const receiver = document.getElementById("receiver").value.trim();
-      const content = document.getElementById("content").value.trim();
-      const result = document.getElementById("send-result");
-
-      if (!username || !receiver || !content) {
-        setFeedback(result, "username, receiver and content are required", "error");
-        return;
-      }
-
-      const id = Date.now();
-      const payload = { id, sender: username, receiver, content };
-
-      try {
-        const response = await fetch("/route", {
+        const response = await fetch("/mail/star", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload)
+          body: JSON.stringify({
+            username,
+            source: state.source,
+            message_id: message.id,
+            is_starred: !message.is_starred,
+          }),
         });
-
         const data = await response.json();
-        if (!response.ok) {
-          throw new Error(data.error || "send failed");
-        }
-
-        setFeedback(result, `sent via ${data.routed_to}`, "success");
-        document.getElementById("content").value = "";
-        document.getElementById("receiver").value = "";
-        await loadSent();
-        useBox("sent");
-        closeCompose();
+        if (!response.ok) throw new Error(data.error || "star failed");
+        setFeedback(result, data.message || "Star updated", "success");
+        await loadMessages();
       } catch (error) {
         setFeedback(result, error.message, "error");
       }
     }
 
-    document.getElementById("send-btn").addEventListener("click", sendMessage);
-    document.getElementById("refresh-inbox").addEventListener("click", loadInbox);
-    document.getElementById("clear-inbox").addEventListener("click", clearInboxHistory);
-    document.getElementById("refresh-sent").addEventListener("click", loadSent);
-    document.getElementById("clear-sent").addEventListener("click", clearSentHistory);
-    document.getElementById("refresh-btn").addEventListener("click", refreshCurrentBox);
-    document.getElementById("clear-btn").addEventListener("click", clearCurrentBox);
-    document.getElementById("nav-inbox").addEventListener("click", () => useBox("inbox"));
-    document.getElementById("nav-sent").addEventListener("click", () => useBox("sent"));
-    document.getElementById("connect-gmail").addEventListener("click", () => {
-      if (!username) {
-        setFeedback(document.getElementById("gmail-status"), "username missing", "error");
+    async function updateSpam(message) {
+      const result = document.getElementById("detail-result");
+      try {
+        const response = await fetch("/mail/spam", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            username,
+            source: state.source,
+            message_id: message.id,
+            is_spam: !message.is_spam,
+          }),
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "junk update failed");
+        setFeedback(result, data.message || "Junk updated", "success");
+        await loadMessages();
+      } catch (error) {
+        setFeedback(result, error.message, "error");
+      }
+    }
+
+    async function moveToTrash(message) {
+      const result = document.getElementById("detail-result");
+      try {
+        const response = await fetch("/mail/trash", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username, source: state.source, message_id: message.id }),
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "move to trash failed");
+        setFeedback(result, data.message || "Moved to trash", "success");
+        await loadMessages();
+      } catch (error) {
+        setFeedback(result, error.message, "error");
+      }
+    }
+
+    async function emptyTrash() {
+      const result = document.getElementById("detail-result");
+      if (!window.confirm("Empty trash for current source?")) return;
+      try {
+        const response = await fetch(`/mail/trash/empty?username=${encodeURIComponent(username)}&source=${encodeURIComponent(state.source)}`, {
+          method: "DELETE",
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "empty trash failed");
+        setFeedback(result, `${data.message} (${data.deleted || 0})`, "success");
+        await loadMessages();
+      } catch (error) {
+        setFeedback(result, error.message, "error");
+      }
+    }
+
+    function openCompose() {
+      document.getElementById("compose-modal-bg").classList.add("open");
+      document.getElementById("compose-to").focus();
+    }
+
+    function closeCompose() {
+      document.getElementById("compose-modal-bg").classList.remove("open");
+    }
+
+    async function sendCompose() {
+      const to = document.getElementById("compose-to").value.trim();
+      const subject = document.getElementById("compose-subject").value.trim();
+      const body = document.getElementById("compose-body").value.trim();
+      const feedback = document.getElementById("compose-result");
+
+      if (!username || !to || !subject || !body) {
+        setFeedback(feedback, "to, subject, and body are required", "error");
         return;
       }
+
+      try {
+        const response = await fetch("/mail/send", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username, to, subject, body }),
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "send failed");
+
+        setFeedback(feedback, data.toast || "Message sent", "success");
+        showToast(data.toast || "Message sent");
+        document.getElementById("compose-to").value = "";
+        document.getElementById("compose-subject").value = "";
+        document.getElementById("compose-body").value = "";
+        closeCompose();
+        if (state.folder === "sent") {
+          await loadMessages();
+        }
+      } catch (error) {
+        setFeedback(feedback, error.message, "error");
+      }
+    }
+
+    document.getElementById("source-internal").addEventListener("click", () => {
+      state.source = "internal";
+      document.getElementById("source-internal").classList.add("active");
+      document.getElementById("source-external").classList.remove("active");
+      loadMessages();
+    });
+
+    document.getElementById("source-external").addEventListener("click", () => {
+      state.source = "external";
+      document.getElementById("source-external").classList.add("active");
+      document.getElementById("source-internal").classList.remove("active");
+      loadMessages();
+    });
+
+    document.querySelectorAll(".folder-btn").forEach((button) => {
+      button.addEventListener("click", () => setFolder(button.dataset.folder));
+    });
+
+    document.getElementById("refresh-btn").addEventListener("click", loadMessages);
+    document.getElementById("empty-trash-btn").addEventListener("click", emptyTrash);
+    document.getElementById("compose-open").addEventListener("click", openCompose);
+    document.getElementById("compose-close").addEventListener("click", closeCompose);
+    document.getElementById("compose-send").addEventListener("click", sendCompose);
+
+    document.getElementById("connect-gmail").addEventListener("click", () => {
+      if (!username) return;
       window.location.href = `/gmail/login?username=${encodeURIComponent(username)}`;
     });
-    document.getElementById("send-gmail").addEventListener("click", sendViaGmail);
-    document.getElementById("logout-gmail").addEventListener("click", disconnectGmail);
-    document.getElementById("gmail-refresh").addEventListener("click", loadGmailInbox);
-    document.getElementById("open-compose").addEventListener("click", openCompose);
-    document.getElementById("close-compose").addEventListener("click", closeCompose);
 
-    loadInbox();
-    loadSent();
-    useBox("inbox");
-    loadGmailStatus().then(loadGmailInbox);
+    loadMessages();
+    checkGmailConnection();
 
     if ("serviceWorker" in navigator) {
       window.addEventListener("load", () => {

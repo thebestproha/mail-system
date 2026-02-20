@@ -12,6 +12,23 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
+from services.external_mail import (
+    external_delete_message,
+    external_mark_spam,
+    external_move_to_trash,
+    external_toggle_star,
+    list_external_messages,
+    send_gmail_message,
+)
+from services.internal_mail import (
+    empty_internal_trash,
+    list_internal_messages,
+    mark_internal_spam,
+    move_internal_to_trash,
+    normalize_internal_recipient,
+    toggle_internal_star,
+)
+from services.router import configure_route_handlers, route_message
 
 
 app = Flask(__name__)
@@ -155,6 +172,21 @@ def init_db() -> None:
             )
             cursor.execute(
                 "CREATE INDEX IF NOT EXISTS idx_messages_status ON messages(status)"
+            )
+            cursor.execute(
+                "ALTER TABLE messages ADD COLUMN IF NOT EXISTS subject TEXT DEFAULT ''"
+            )
+            cursor.execute(
+                "ALTER TABLE messages ADD COLUMN IF NOT EXISTS is_starred BOOLEAN DEFAULT FALSE"
+            )
+            cursor.execute(
+                "ALTER TABLE messages ADD COLUMN IF NOT EXISTS is_spam BOOLEAN DEFAULT FALSE"
+            )
+            cursor.execute(
+                "ALTER TABLE messages ADD COLUMN IF NOT EXISTS deleted_for_sender BOOLEAN DEFAULT FALSE"
+            )
+            cursor.execute(
+                "ALTER TABLE messages ADD COLUMN IF NOT EXISTS deleted_for_receiver BOOLEAN DEFAULT FALSE"
             )
             cursor.execute(
             """
@@ -350,6 +382,66 @@ def get_next_server():
     raise ValueError("No UP servers found")
 
 
+def _ensure_internal_receiver_exists(receiver_username: str) -> None:
+    connection = get_db_connection()
+    pool = get_db_pool()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT 1 FROM users WHERE username = %s", (receiver_username,))
+            matched_receiver = cursor.fetchone()
+        if matched_receiver is None:
+            raise ValueError("Receiver does not exist")
+    finally:
+        pool.putconn(connection)
+
+
+def send_internal_distributed(sender: str, receiver: str, subject: str, body: str):
+    global last_routed
+
+    receiver_username = normalize_internal_recipient(receiver)
+    _ensure_internal_receiver_exists(receiver_username)
+
+    try:
+        server_id = get_next_server()
+    except ValueError as error:
+        raise RuntimeError(str(error)) from error
+
+    message_id = int.from_bytes(os.urandom(8), "big")
+    payload = {
+        "id": message_id,
+        "sender": sender,
+        "receiver": receiver_username,
+        "subject": subject,
+        "content": body,
+    }
+
+    target_url = f"{server_urls[server_id]}/receive"
+    response = requests.post(
+        target_url,
+        json=payload,
+        timeout=REQUEST_TIMEOUT_SECONDS,
+    )
+    response.raise_for_status()
+
+    last_routed = server_id
+    add_log(f"Message {message_id} routed to {server_id}")
+
+    return {
+        "id": message_id,
+        "routed_to": server_id,
+        "server_response": response.json(),
+    }
+
+
+def send_external_via_gmail(sender: str, recipient_email: str, subject: str, body: str):
+    service = get_gmail_service(sender)
+    sent = send_gmail_message(service, recipient_email, subject, body)
+    return {"id": sent.get("id")}
+
+
+configure_route_handlers(send_internal_distributed, send_external_via_gmail)
+
+
 @app.get("/")
 def home():
     return redirect(url_for("login_page"))
@@ -464,49 +556,29 @@ def restore_server(server_id):
 
 @app.post("/route")
 def route_request():
-    global last_routed
-
     payload = request.get_json(silent=True) or {}
+    sender = (payload.get("sender") or "").strip()
     receiver = (payload.get("receiver") or "").strip()
+    subject = (payload.get("subject") or "").strip()
+    body = payload.get("content") or ""
 
-    connection = get_db_connection()
-    try:
-        with connection.cursor() as cursor:
-            cursor.execute("SELECT 1 FROM users WHERE username = %s", (receiver,))
-            matched_receiver = cursor.fetchone()
-    finally:
-        db_pool.putconn(connection)
-
-    if matched_receiver is None:
-        return jsonify({"error": "Receiver does not exist"}), 400
+    if not sender or not receiver or not body:
+        return jsonify({"error": "sender, receiver and content are required"}), 400
 
     try:
-        server_id = get_next_server()
-    except ValueError as error:
-        return jsonify({"error": str(error)}), 503
-
-    message_id = payload.get("id")
-    target_url = f"{server_urls[server_id]}/receive"
-
-    try:
-        response = requests.post(
-            target_url,
-            json=payload,
-            timeout=REQUEST_TIMEOUT_SECONDS,
+        result = send_internal_distributed(
+            sender=sender,
+            receiver=receiver,
+            subject=subject,
+            body=body,
         )
-        response.raise_for_status()
+        return jsonify(result)
+    except ValueError as error:
+        return jsonify({"error": str(error)}), 400
+    except RuntimeError as error:
+        return jsonify({"error": str(error)}), 503
     except requests.RequestException as error:
         return jsonify({"error": str(error)}), 502
-
-    last_routed = server_id
-    add_log(f"Message {message_id} routed to {server_id}")
-
-    return jsonify(
-        {
-            "routed_to": server_id,
-            "server_response": response.json(),
-        }
-    )
 
 
 @app.post("/register")
@@ -730,6 +802,212 @@ def gmail_inbox():
         return jsonify({"error": f"Gmail API error: {error}", "messages": []}), 502
     except Exception as error:
         return jsonify({"error": f"Failed to fetch inbox: {error}", "messages": []}), 500
+
+
+@app.post("/mail/send")
+def mail_send():
+    payload = request.get_json(silent=True) or {}
+    username = (payload.get("username") or get_current_username() or "").strip()
+    recipient_email = (payload.get("to") or "").strip()
+    subject = (payload.get("subject") or "").strip()
+    body = payload.get("body") or ""
+
+    if not username:
+        return jsonify({"error": "username is required"}), 400
+    if not recipient_email or not subject or not body:
+        return jsonify({"error": "to, subject, and body are required"}), 400
+
+    try:
+        result = route_message(
+            recipient_email=recipient_email,
+            subject=subject,
+            body=body,
+            current_user=username,
+        )
+        return jsonify(result)
+    except ValueError as error:
+        return jsonify({"error": str(error)}), 400
+    except RuntimeError as error:
+        return jsonify({"error": str(error)}), 503
+    except requests.RequestException as error:
+        return jsonify({"error": str(error)}), 502
+    except HttpError as error:
+        return jsonify({"error": f"Gmail API error: {error}"}), 502
+    except Exception as error:
+        return jsonify({"error": f"send failed: {error}"}), 500
+
+
+@app.get("/mail/list")
+def mail_list():
+    username = (request.args.get("username") or get_current_username() or "").strip()
+    source = (request.args.get("source") or "internal").strip().lower()
+    folder = (request.args.get("folder") or "inbox").strip().lower()
+
+    if not username:
+        return jsonify({"error": "username is required", "messages": []}), 400
+
+    if source == "external":
+        try:
+            service = get_gmail_service(username)
+            messages = list_external_messages(service, folder)
+            return jsonify({"source": source, "folder": folder, "messages": messages})
+        except ValueError as error:
+            return jsonify({"error": str(error), "messages": []}), 401
+        except HttpError as error:
+            return jsonify({"error": f"Gmail API error: {error}", "messages": []}), 502
+        except Exception as error:
+            return jsonify({"error": f"failed to load external mail: {error}", "messages": []}), 500
+
+    connection = get_db_connection()
+    pool = get_db_pool()
+    try:
+        messages = list_internal_messages(connection, username, folder)
+        if folder == "inbox":
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    UPDATE messages
+                    SET status='READ', timestamp_read=CURRENT_TIMESTAMP
+                    WHERE receiver=%s
+                      AND status='UNREAD'
+                      AND hidden_for_receiver = FALSE
+                    """,
+                    (username,),
+                )
+            connection.commit()
+        return jsonify({"source": source, "folder": folder, "messages": messages})
+    finally:
+        pool.putconn(connection)
+
+
+@app.post("/mail/trash")
+def mail_trash():
+    payload = request.get_json(silent=True) or {}
+    username = (payload.get("username") or get_current_username() or "").strip()
+    source = (payload.get("source") or "internal").strip().lower()
+    message_id = str(payload.get("message_id") or "").strip()
+
+    if not username or not message_id:
+        return jsonify({"error": "username and message_id are required"}), 400
+
+    if source == "external":
+        try:
+            service = get_gmail_service(username)
+            external_move_to_trash(service, message_id)
+            return jsonify({"message": "Moved to Gmail Trash"})
+        except ValueError as error:
+            return jsonify({"error": str(error)}), 401
+        except HttpError as error:
+            return jsonify({"error": f"Gmail API error: {error}"}), 502
+
+    connection = get_db_connection()
+    pool = get_db_pool()
+    try:
+        updated = move_internal_to_trash(connection, username, message_id)
+        connection.commit()
+        if updated == 0:
+            return jsonify({"error": "Message not found"}), 404
+        return jsonify({"message": "Moved to Internal Trash"})
+    finally:
+        pool.putconn(connection)
+
+
+@app.delete("/mail/trash/empty")
+def empty_trash():
+    username = (request.args.get("username") or get_current_username() or "").strip()
+    source = (request.args.get("source") or "internal").strip().lower()
+
+    if not username:
+        return jsonify({"error": "username is required"}), 400
+
+    if source == "external":
+        try:
+            service = get_gmail_service(username)
+            trashed = list_external_messages(service, "trash", max_results=100)
+            for message in trashed:
+                message_id = message.get("id")
+                if message_id:
+                    external_delete_message(service, message_id)
+            return jsonify({"message": "Gmail Trash emptied", "deleted": len(trashed)})
+        except ValueError as error:
+            return jsonify({"error": str(error)}), 401
+        except HttpError as error:
+            return jsonify({"error": f"Gmail API error: {error}"}), 502
+
+    connection = get_db_connection()
+    pool = get_db_pool()
+    try:
+        deleted = empty_internal_trash(connection, username)
+        connection.commit()
+        return jsonify({"message": "Internal Trash emptied", "deleted": deleted})
+    finally:
+        pool.putconn(connection)
+
+
+@app.post("/mail/star")
+def mail_star():
+    payload = request.get_json(silent=True) or {}
+    username = (payload.get("username") or get_current_username() or "").strip()
+    source = (payload.get("source") or "internal").strip().lower()
+    message_id = str(payload.get("message_id") or "").strip()
+    is_starred = bool(payload.get("is_starred"))
+
+    if not username or not message_id:
+        return jsonify({"error": "username and message_id are required"}), 400
+
+    if source == "external":
+        try:
+            service = get_gmail_service(username)
+            external_toggle_star(service, message_id, is_starred)
+            return jsonify({"message": "External star updated"})
+        except ValueError as error:
+            return jsonify({"error": str(error)}), 401
+        except HttpError as error:
+            return jsonify({"error": f"Gmail API error: {error}"}), 502
+
+    connection = get_db_connection()
+    pool = get_db_pool()
+    try:
+        updated = toggle_internal_star(connection, username, message_id, is_starred)
+        connection.commit()
+        if updated == 0:
+            return jsonify({"error": "Message not found"}), 404
+        return jsonify({"message": "Internal star updated"})
+    finally:
+        pool.putconn(connection)
+
+
+@app.post("/mail/spam")
+def mail_spam():
+    payload = request.get_json(silent=True) or {}
+    username = (payload.get("username") or get_current_username() or "").strip()
+    source = (payload.get("source") or "internal").strip().lower()
+    message_id = str(payload.get("message_id") or "").strip()
+    is_spam = bool(payload.get("is_spam"))
+
+    if not username or not message_id:
+        return jsonify({"error": "username and message_id are required"}), 400
+
+    if source == "external":
+        try:
+            service = get_gmail_service(username)
+            external_mark_spam(service, message_id, is_spam)
+            return jsonify({"message": "External spam updated"})
+        except ValueError as error:
+            return jsonify({"error": str(error)}), 401
+        except HttpError as error:
+            return jsonify({"error": f"Gmail API error: {error}"}), 502
+
+    connection = get_db_connection()
+    pool = get_db_pool()
+    try:
+        updated = mark_internal_spam(connection, username, message_id, is_spam)
+        connection.commit()
+        if updated == 0:
+            return jsonify({"error": "Message not found"}), 404
+        return jsonify({"message": "Internal spam updated"})
+    finally:
+        pool.putconn(connection)
 
 
 @app.get("/inbox/<username>")
