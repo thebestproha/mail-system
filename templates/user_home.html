@@ -23,6 +23,9 @@
     <nav class="mail-nav" aria-label="Mailbox">
       <button id="nav-inbox" class="btn nav-btn active" type="button">Inbox</button>
       <button id="nav-sent" class="btn nav-btn" type="button">Sent</button>
+      <button id="connect-gmail" class="btn nav-btn" type="button">Connect Gmail</button>
+      <button id="send-gmail" class="btn nav-btn" type="button" style="display:none;">Send via Gmail</button>
+      <button id="logout-gmail" class="btn nav-btn" type="button" style="display:none;">Disconnect Gmail</button>
       <a class="btn nav-btn" href="/login">Logout</a>
     </nav>
 
@@ -69,6 +72,17 @@
         <div id="action-result" class="message-feedback" role="status" aria-live="polite"></div>
       </article>
     </section>
+
+    <section class="mail-list-panel">
+      <div class="panel-head">
+        <h2>Gmail Inbox</h2>
+        <div class="panel-tools">
+          <button id="gmail-refresh" class="btn btn-ghost" type="button">Refresh Gmail</button>
+        </div>
+      </div>
+      <div id="gmail-status" class="message-feedback" role="status" aria-live="polite"></div>
+      <div id="gmail-inbox-list" class="message-list" aria-live="polite"></div>
+    </section>
   </main>
 
   <section id="compose-panel" class="compose-panel" aria-label="Compose message">
@@ -107,6 +121,7 @@
     };
 
     const composePanel = document.getElementById("compose-panel");
+    let gmailConnected = false;
 
     function setFeedback(target, message, type = "") {
       target.textContent = message || "";
@@ -134,6 +149,131 @@
 
     function previewText(content) {
       return String(content || "").replace(/\n/g, " ").slice(0, 96) || "No content";
+    }
+
+    function updateGmailControls() {
+      document.getElementById("send-gmail").style.display = gmailConnected ? "block" : "none";
+      document.getElementById("logout-gmail").style.display = gmailConnected ? "block" : "none";
+    }
+
+    function renderGmailInbox(messages) {
+      const list = document.getElementById("gmail-inbox-list");
+      list.innerHTML = "";
+
+      if (!messages.length) {
+        const empty = document.createElement("div");
+        empty.className = "message-card";
+        empty.innerHTML = `<p class="message-title">No Gmail messages</p><p class="message-preview">Connect Gmail and refresh to see recent messages.</p>`;
+        list.appendChild(empty);
+        return;
+      }
+
+      for (const message of messages) {
+        const card = document.createElement("article");
+        card.className = "message-card";
+        card.innerHTML = `
+          <div class="message-row">
+            <p class="message-title">${message.subject || "(No subject)"}</p>
+            <p class="message-time">#${message.id || "-"}</p>
+          </div>
+          <p class="message-preview">From: ${message.sender || "Unknown"}</p>
+          <p class="message-preview">${message.snippet || ""}</p>
+        `;
+        list.appendChild(card);
+      }
+    }
+
+    async function loadGmailStatus() {
+      const status = document.getElementById("gmail-status");
+      if (!username) {
+        gmailConnected = false;
+        updateGmailControls();
+        setFeedback(status, "Log in to connect Gmail.");
+        return;
+      }
+
+      try {
+        const response = await fetch(`/gmail/status?username=${encodeURIComponent(username)}`);
+        const data = await response.json();
+        gmailConnected = Boolean(data.connected);
+        updateGmailControls();
+        if (!data.oauth_configured) {
+          setFeedback(status, "Google OAuth env vars are missing on server.", "error");
+          return;
+        }
+        setFeedback(status, gmailConnected ? "Gmail connected" : "Gmail not connected");
+      } catch (error) {
+        gmailConnected = false;
+        updateGmailControls();
+        setFeedback(status, "Unable to read Gmail status", "error");
+      }
+    }
+
+    async function loadGmailInbox() {
+      const status = document.getElementById("gmail-status");
+      if (!username) {
+        renderGmailInbox([]);
+        return;
+      }
+
+      try {
+        const response = await fetch(`/gmail/inbox?username=${encodeURIComponent(username)}`);
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data.error || "Unable to fetch Gmail inbox");
+        }
+        renderGmailInbox(data.messages || []);
+      } catch (error) {
+        renderGmailInbox([]);
+        setFeedback(status, error.message, "error");
+      }
+    }
+
+    async function sendViaGmail() {
+      const status = document.getElementById("gmail-status");
+      const to = window.prompt("Recipient email address");
+      if (to === null) return;
+      const subject = window.prompt("Subject");
+      if (subject === null) return;
+      const body = window.prompt("Message body");
+      if (body === null) return;
+
+      try {
+        const response = await fetch("/gmail/send", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username, to, subject, body })
+        });
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data.error || "Gmail send failed");
+        }
+        setFeedback(status, "Email sent via Gmail", "success");
+        await loadGmailInbox();
+      } catch (error) {
+        setFeedback(status, error.message, "error");
+      }
+    }
+
+    async function disconnectGmail() {
+      const status = document.getElementById("gmail-status");
+      try {
+        const response = await fetch("/gmail/logout", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username })
+        });
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data.error || "Disconnect failed");
+        }
+        gmailConnected = false;
+        updateGmailControls();
+        renderGmailInbox([]);
+        setFeedback(status, "Gmail disconnected", "success");
+      } catch (error) {
+        setFeedback(status, error.message, "error");
+      }
     }
 
     function activeMessages() {
@@ -429,12 +569,23 @@
     document.getElementById("clear-btn").addEventListener("click", clearCurrentBox);
     document.getElementById("nav-inbox").addEventListener("click", () => useBox("inbox"));
     document.getElementById("nav-sent").addEventListener("click", () => useBox("sent"));
+    document.getElementById("connect-gmail").addEventListener("click", () => {
+      if (!username) {
+        setFeedback(document.getElementById("gmail-status"), "username missing", "error");
+        return;
+      }
+      window.location.href = `/gmail/login?username=${encodeURIComponent(username)}`;
+    });
+    document.getElementById("send-gmail").addEventListener("click", sendViaGmail);
+    document.getElementById("logout-gmail").addEventListener("click", disconnectGmail);
+    document.getElementById("gmail-refresh").addEventListener("click", loadGmailInbox);
     document.getElementById("open-compose").addEventListener("click", openCompose);
     document.getElementById("close-compose").addEventListener("click", closeCompose);
 
     loadInbox();
     loadSent();
     useBox("inbox");
+    loadGmailStatus().then(loadGmailInbox);
 
     if ("serviceWorker" in navigator) {
       window.addEventListener("load", () => {
