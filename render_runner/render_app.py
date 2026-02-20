@@ -3,8 +3,7 @@ import os
 from urllib.parse import urlsplit
 
 import requests
-from flask import Flask, jsonify
-from werkzeug.middleware.dispatcher import DispatcherMiddleware
+from flask import Flask
 from werkzeug.test import Client
 from werkzeug.wrappers import Response as WerkzeugResponse
 
@@ -100,29 +99,4 @@ lb.requests.delete = lambda url, timeout=None, **kwargs: _internal_request(
 )
 
 app = Flask(__name__)
-
-
-@app.get("/")
-def root_health():
-    return jsonify(
-        {
-            "message": "Render unified runner active",
-            "routes": {
-                "load_balancer": "/lb",
-                "server1": "/s1",
-                "server2": "/s2",
-                "server3": "/s3",
-            },
-        }
-    )
-
-
-app.wsgi_app = DispatcherMiddleware(
-    app.wsgi_app,
-    {
-        "/lb": lb.app,
-        "/s1": server1.app,
-        "/s2": server2.app,
-        "/s3": server3.app,
-    },
-)
+app.wsgi_app = lb.app.wsgi_app
