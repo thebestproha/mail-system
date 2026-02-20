@@ -11,26 +11,41 @@ SERVER_ID = "S1"
 SERVER_PORT = 5001
 
 DATABASE_URL = os.environ.get("DATABASE_URL")
-db_pool = SimpleConnectionPool(
-    minconn=1,
-    maxconn=10,
-    dsn=DATABASE_URL,
-)
+db_pool = None
+db_schema_initialized = False
 
 
 class DatabaseConnectionError(Exception):
     pass
 
 
+def get_db_pool():
+    global db_pool
+    if db_pool is None:
+        db_pool = SimpleConnectionPool(
+            minconn=1,
+            maxconn=5,
+            dsn=os.environ.get("DATABASE_URL"),
+        )
+    return db_pool
+
+
 def get_db_connection():
     try:
-        return db_pool.getconn()
+        init_db()
+        pool = get_db_pool()
+        return pool.getconn()
     except Exception as error:
         raise DatabaseConnectionError(str(error))
 
 
 def init_db() -> None:
-    connection = get_db_connection()
+    global db_schema_initialized
+    if db_schema_initialized:
+        return
+
+    pool = get_db_pool()
+    connection = pool.getconn()
     try:
         with connection.cursor() as cursor:
             cursor.execute(
@@ -58,11 +73,9 @@ def init_db() -> None:
             )
 
         connection.commit()
+        db_schema_initialized = True
     finally:
-        db_pool.putconn(connection)
-
-
-init_db()
+        pool.putconn(connection)
 
 
 @app.get("/")
