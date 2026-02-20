@@ -10,7 +10,7 @@ app = Flask(__name__)
 SERVER_ID = "S1"
 SERVER_PORT = 5001
 
-DATABASE_URL = os.getenv("DATABASE_URL")
+DATABASE_URL = os.environ.get("DATABASE_URL")
 db_pool = SimpleConnectionPool(
     minconn=1,
     maxconn=10,
@@ -275,5 +275,5 @@ def corrupt_message(message_id):
 
 if __name__ == "__main__":
     init_db()
-    port = int(os.getenv("PORT", 5001))
-    app.run(host="0.0.0.0", port=5001, debug=False)
+    port = int(os.environ.get("PORT", 5001))
+    app.run(host="0.0.0.0", port=port, debug=False)

@@ -8,6 +8,31 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 app = Flask(__name__)
 
+HOST = os.environ.get("HOST", "0.0.0.0")
+PORT = int(os.environ.get("PORT", 10000))
+
+S1_URL = os.environ.get("S1_URL")
+S2_URL = os.environ.get("S2_URL")
+S3_URL = os.environ.get("S3_URL")
+if not all([S1_URL, S2_URL, S3_URL]):
+    raise RuntimeError(
+        "S1_URL, S2_URL, and S3_URL environment variables are required"
+    )
+
+REQUEST_TIMEOUT_SECONDS = float(os.environ.get("REQUEST_TIMEOUT_SECONDS", "5"))
+REPLICA_TIMEOUT_SECONDS = float(os.environ.get("REPLICA_TIMEOUT_SECONDS", "1"))
+
+DATABASE_URL = os.environ.get("DATABASE_URL")
+if not DATABASE_URL:
+    raise RuntimeError("DATABASE_URL environment variable is required")
+
+GMAIL_CLIENT_ID = os.environ.get("GMAIL_CLIENT_ID", "")
+GMAIL_CLIENT_SECRET = os.environ.get("GMAIL_CLIENT_SECRET", "")
+GMAIL_REFRESH_TOKEN = os.environ.get("GMAIL_REFRESH_TOKEN", "")
+GMAIL_OAUTH_CONFIGURED = all(
+    [GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, GMAIL_REFRESH_TOKEN]
+)
+
 server_status = {
     "S1": "UP",
     "S2": "UP",
@@ -18,17 +43,12 @@ available_servers = ["S1", "S2", "S3"]
 current_index = 0
 last_routed = None
 
-S1_URL = "http://127.0.0.1:5001"
-S2_URL = "http://127.0.0.1:5002"
-S3_URL = "http://127.0.0.1:5003"
-
 server_urls = {
     "S1": S1_URL,
     "S2": S2_URL,
     "S3": S3_URL,
 }
 
-DATABASE_URL = os.getenv("DATABASE_URL")
 db_pool = SimpleConnectionPool(
     minconn=1,
     maxconn=10,
@@ -154,7 +174,9 @@ def health():
     return jsonify(
         {
             "message": "Load Balancer is running",
-            "port": 5000,
+            "host": HOST,
+            "port": PORT,
+            "gmail_oauth_configured": GMAIL_OAUTH_CONFIGURED,
         }
     )
 
@@ -279,7 +301,11 @@ def route_request():
     target_url = f"{server_urls[server_id]}/receive"
 
     try:
-        response = requests.post(target_url, json=payload, timeout=5)
+        response = requests.post(
+            target_url,
+            json=payload,
+            timeout=REQUEST_TIMEOUT_SECONDS,
+        )
         response.raise_for_status()
     except requests.RequestException as error:
         return jsonify({"error": str(error)}), 502
@@ -494,7 +520,7 @@ def edit_message(message_id):
                 requests.put,
                 f"{server_url}/edit/{message_id}",
                 json={"content": content},
-                timeout=1,
+                timeout=REPLICA_TIMEOUT_SECONDS,
             ): server_id
             for server_id, server_url in server_urls.items()
         }
@@ -528,7 +554,7 @@ def delete_message(message_id):
             executor.submit(
                 requests.delete,
                 f"{server_url}/delete/{message_id}",
-                timeout=1,
+                timeout=REPLICA_TIMEOUT_SECONDS,
             ): server_id
             for server_id, server_url in server_urls.items()
         }
@@ -555,5 +581,4 @@ def delete_message(message_id):
 
 
 if __name__ == "__main__":
-    port = int(os.getenv("PORT", 8080))
-    app.run(host="0.0.0.0", port=port, debug=False)
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))

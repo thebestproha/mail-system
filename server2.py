@@ -10,7 +10,7 @@ app = Flask(__name__)
 SERVER_ID = "S2"
 SERVER_PORT = 5002
 
-DATABASE_URL = os.getenv("DATABASE_URL")
+DATABASE_URL = os.environ.get("DATABASE_URL")
 db_pool = SimpleConnectionPool(
     minconn=1,
     maxconn=10,
