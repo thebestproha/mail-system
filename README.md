@@ -7,6 +7,11 @@ A mini distributed mail system with:
 - PostgreSQL storage (`users`, `messages`, `event_logs`)
 - HTML frontend templates in `templates/`
 
+Live Deployment
+---------------
+- **Production (stable):** [Advanced Mail System on Railway](https://mail-system-production.up.railway.app/login) - live deployment of the last stable commit. This free-tier deployment is expected to remain available till 16th March 2026.
+- **Render preview:** [mail-system-eude.onrender.com/login](https://mail-system-eude.onrender.com/login) - preview deployment of newer in-progress code. It is currently under construction and not functional.
+
 
 Current Architecture
 --------------------
