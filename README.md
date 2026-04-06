@@ -10,7 +10,7 @@ A mini distributed mail system with:
 Live Deployment
 ---------------
 - **Production (stable):** [Advanced Mail System on Railway](https://mail-system-production.up.railway.app/login) - live deployment of the last stable commit. This free-tier deployment is expected to remain available till 16th March 2026.
-- **Render preview:** [mail-system-eude.onrender.com/login](https://mail-system-eude.onrender.com/login) - preview deployment of newer in-progress code. It is currently under construction and not functional.
+- **Render target:** deploy using the included `render.yaml` blueprint (recommended command: `gunicorn render_runner.render_app:app -c gunicorn.conf.py`).
 
 
 Current Architecture
@@ -158,6 +158,33 @@ Important notes for Railway:
 - Public traffic should go only to load balancer (`gunicorn` on `$PORT`).
 - Internal S1/S2/S3 calls work via `127.0.0.1` inside the same container.
 - If you scale multiple replicas of this Railway service, each replica runs its own S1/S2/S3 set.
+
+
+Render Hosting (Recommended)
+----------------------------
+
+This repository includes `render.yaml` for Render Blueprint deploys.
+
+Why this mode is faster on free tier:
+- Uses `render_runner/render_app.py`, which runs LB + replicas in one process.
+- Internal LB->replica calls are short-circuited in-process (no network hop).
+- Gunicorn defaults are tuned for low-memory instances (`WEB_CONCURRENCY=1`, threaded worker).
+
+Steps:
+1. Push this repository to GitHub.
+2. In Render, create a new Blueprint and select this repository.
+3. Set required environment variables:
+	- `DATABASE_URL`
+	- `GOOGLE_CLIENT_ID` (if Gmail integration is needed)
+	- `GOOGLE_CLIENT_SECRET` (if Gmail integration is needed)
+	- `GOOGLE_REDIRECT_URI` (set to `https://<your-render-host>/oauth2callback`)
+4. Deploy.
+
+Recommended free-tier env values:
+- `WEB_CONCURRENCY=1`
+- `GUNICORN_THREADS=4`
+- `REQUEST_TIMEOUT_SECONDS=3`
+- `REPLICA_TIMEOUT_SECONDS=0.8`
 
 
 Testing
