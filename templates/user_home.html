@@ -4,99 +4,673 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <link rel="manifest" href="/static/manifest.json">
-  <meta name="theme-color" content="#0f172a">
+  <meta name="theme-color" content="#ffffff">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black">
-  <title>MiniMail Hybrid Client</title>
+  <meta name="apple-mobile-web-app-status-bar-style" content="white">
+  <title>EditMail</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
   <style>
-    .hybrid-topbar {
+    /* Gmail-style Layout */
+    .gmail-layout {
+      display: grid;
+      grid-template-columns: 256px 1fr;
+      min-height: 100vh;
+      background: #f8f9fa;
+    }
+
+    /* Gmail-style Sidebar */
+    .gmail-sidebar {
+      background: #ffffff;
+      padding: 8px;
+      border-right: 1px solid #e0e0e0;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      box-shadow: 2px 0 4px rgba(0, 0, 0, 0.05);
+    }
+
+    /* Logo in Sidebar */
+    .sidebar-logo {
       display: flex;
       align-items: center;
-      justify-content: space-between;
       gap: 12px;
-      padding: 14px 18px;
-      border-bottom: 1px solid var(--border);
-      background: color-mix(in srgb, var(--bg-secondary) 80%, transparent);
-      backdrop-filter: blur(6px);
-      position: sticky;
-      top: 0;
-      z-index: 3;
+      padding: 16px 8px 8px 24px;
+      margin-bottom: 8px;
     }
 
-    .source-toggle {
+    .sidebar-logo img {
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
+    }
+
+    .sidebar-logo-text {
+      font-size: 20px;
+      font-weight: 600;
+      color: #1a73e8;
+      letter-spacing: -0.5px;
+    }
+
+    .gmail-compose-btn {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      border: none;
+      border-radius: 24px;
+      padding: 16px 28px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      margin: 8px 8px 16px 8px;
       display: inline-flex;
-      border: 1px solid var(--border);
-      border-radius: 999px;
-      overflow: hidden;
-      background: var(--bg-secondary);
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      color: #ffffff;
+      box-shadow: 0 2px 4px rgba(102, 126, 234, 0.3), 0 4px 8px rgba(102, 126, 234, 0.2);
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      width: calc(100% - 16px);
     }
 
-    .source-toggle button {
+    .gmail-compose-btn:hover {
+      box-shadow: 0 4px 8px rgba(102, 126, 234, 0.4), 0 6px 12px rgba(102, 126, 234, 0.3);
+      transform: translateY(-2px);
+    }
+
+    .gmail-compose-btn:active {
+      transform: translateY(0);
+    }
+
+    .gmail-compose-btn svg {
+      width: 24px;
+      height: 24px;
+    }
+
+    .gmail-folder-list {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .gmail-folder-btn {
       border: none;
       background: transparent;
-      color: var(--text-secondary);
-      padding: 8px 14px;
-      font-weight: 700;
-      cursor: pointer;
-      transition: all var(--transition-fast);
-    }
-
-    .source-toggle button.active {
-      background: var(--accent);
-      color: #fff;
-    }
-
-    .mail-layout {
-      display: grid;
-      grid-template-columns: 260px 1fr;
-      min-height: 100vh;
-    }
-
-    .folder-list {
-      display: grid;
-      gap: 8px;
-    }
-
-    .folder-btn {
-      width: 100%;
+      border-radius: 0 20px 20px 0;
+      padding: 10px 16px 10px 24px;
       text-align: left;
-      border: 1px solid transparent;
-      background: transparent;
-      color: var(--text-primary);
-      padding: 10px 12px;
-      border-radius: 10px;
+      font-size: 14px;
+      font-weight: 500;
+      color: #202124;
       cursor: pointer;
-      transition: all var(--transition-fast);
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      position: relative;
+    }
+
+    .gmail-folder-btn::before {
+      content: '';
+      position: absolute;
+      left: 0;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 3px;
+      height: 0;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      border-radius: 0 2px 2px 0;
+      transition: height 0.2s;
+    }
+
+    .gmail-folder-btn:hover {
+      background: #f8f9fa;
+    }
+
+    .gmail-folder-btn.active {
+      background: #e8f0fe;
+      color: #1a73e8;
+      font-weight: 700;
+    }
+
+    .gmail-folder-btn.active::before {
+      height: 60%;
+    }
+
+    .gmail-folder-btn:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+
+    .folder-icon {
+      width: 20px;
+      height: 20px;
+      display: inline-flex;
+    }
+
+    /* Gmail-style Top Bar */
+    .gmail-topbar {
+      background: #ffffff;
+      padding: 8px 24px;
+      border-bottom: 1px solid #e0e0e0;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      height: 64px;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+
+    .gmail-search {
+      flex: 1;
+      max-width: 720px;
+      position: relative;
+    }
+
+    .gmail-search-input {
+      width: 100%;
+      background: #f1f3f4;
+      border: 1px solid transparent;
+      border-radius: 24px;
+      padding: 12px 16px 12px 48px;
+      font-size: 14px;
+      color: #202124;
+      outline: none;
+      transition: all 0.2s;
+    }
+
+    .gmail-search-input:hover {
+      background: #e8eaed;
+    }
+
+    .gmail-search-input:focus {
+      background: #ffffff;
+      border-color: #1a73e8;
+      box-shadow: 0 1px 1px 0 rgba(65,69,73,.3), 0 1px 3px 1px rgba(65,69,73,.15);
+    }
+
+    .gmail-search-icon {
+      position: absolute;
+      left: 14px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: #5f6368;
+      pointer-events: none;
+    }
+
+    .gmail-topbar-actions {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    /* User Profile Section in Topbar */
+    .user-profile-section {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      margin-left: auto;
+      padding-left: 16px;
+      border-left: 1px solid #e0e0e0;
+    }
+
+    .gmail-connection-status {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 12px;
+      border-radius: 16px;
+      background: #f8f9fa;
+      font-size: 13px;
+      color: #5f6368;
+      transition: all 0.2s;
+    }
+
+    .gmail-connection-status.connected {
+      background: #e6f4ea;
+      color: #137333;
+    }
+
+    .gmail-connection-status .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #dadce0;
+    }
+
+    .gmail-connection-status.connected .status-dot {
+      background: #34a853;
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.6; }
+    }
+
+    .user-profile-button {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 6px 12px 6px 6px;
+      border-radius: 24px;
+      background: transparent;
+      border: 1px solid #e0e0e0;
+      cursor: pointer;
+      transition: all 0.2s;
+      font-size: 14px;
+      color: #202124;
+      font-weight: 500;
+    }
+
+    .user-profile-button:hover {
+      background: #f8f9fa;
+      box-shadow: 0 1px 2px rgba(60,64,67,.3), 0 2px 6px 2px rgba(60,64,67,.15);
+    }
+
+    .user-avatar {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 600;
+      font-size: 14px;
+      flex-shrink: 0;
+    }
+
+    .gmail-icon-btn {
+      background: transparent;
+      border: none;
+      border-radius: 50%;
+      padding: 10px;
+      cursor: pointer;
+      color: #5f6368;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s;
+      position: relative;
+    }
+
+    .gmail-icon-btn:hover {
+      background: #f1f3f4;
+      color: #202124;
+      transform: scale(1.05);
+    }
+
+    .gmail-icon-btn:active {
+      transform: scale(0.95);
+    }
+
+    /* Gmail-style Main Content */
+    .gmail-main {
+      display: grid;
+      grid-template-columns: 1fr;
+      background: #f8f9fa;
+    }
+
+    .gmail-mail-view {
+      padding: 0;
+      background: #ffffff;
+      margin: 16px;
+      border-radius: 12px;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+      overflow: hidden;
+    }
+
+    .gmail-toolbar {
+      background: #ffffff;
+      padding: 12px 24px;
+      border-bottom: 1px solid #e0e0e0;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+      position: sticky;
+      top: 64px;
+      z-index: 9;
+    }
+
+    .source-toggle-pills {
+      display: inline-flex;
+      background: #f1f3f4;
+      border-radius: 24px;
+      padding: 3px;
+      gap: 2px;
+      border: 1px solid #e0e0e0;
+    }
+
+    .source-pill {
+      border: none;
+      background: transparent;
+      padding: 8px 20px;
+      border-radius: 20px;
+      font-size: 14px;
+      font-weight: 500;
+      color: #5f6368;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .source-pill:hover {
+      background: rgba(255, 255, 255, 0.5);
+    }
+
+    .source-pill.active {
+      background: #ffffff;
+      color: #1a73e8;
+      box-shadow: 0 1px 2px 0 rgba(60,64,67,.3), 0 1px 3px 1px rgba(60,64,67,.15);
       font-weight: 600;
     }
 
-    .folder-btn.active,
-    .folder-btn:hover {
-      border-color: var(--border);
-      background: color-mix(in srgb, var(--bg-secondary) 76%, transparent);
+    /* Gmail-style Message List */
+    .gmail-message-list {
+      background: #ffffff;
+      padding: 8px 0;
     }
 
-    .hybrid-main {
+    .gmail-message-item {
+      border-bottom: 1px solid #f0f0f0;
+      padding: 12px 24px;
       display: grid;
-      grid-template-columns: minmax(300px, 420px) 1fr;
-      min-height: calc(100vh - 67px);
+      grid-template-columns: auto 1fr auto;
+      gap: 16px;
+      align-items: center;
+      cursor: pointer;
+      transition: all 0.2s;
+      position: relative;
     }
 
-    .mail-list-panel,
-    .mail-detail-panel {
-      transition: all var(--transition-fast);
+    .gmail-message-item::before {
+      content: '';
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      width: 3px;
+      background: #1a73e8;
+      opacity: 0;
+      transition: opacity 0.2s;
     }
 
-    .message-card {
-      border-radius: 14px;
+    .gmail-message-item:hover {
+      background: #f8f9fa;
+      box-shadow: 0 1px 3px rgba(60,64,67,.15);
+      z-index: 1;
+    }
+
+    .gmail-message-item:hover::before {
+      opacity: 1;
+    }
+
+    .gmail-message-item.active {
+      background: #e8f0fe;
+      border-bottom-color: #e8f0fe;
+    }
+
+    .gmail-message-item.active::before {
+      opacity: 1;
+    }
+
+    .gmail-message-item.unread {
+      font-weight: 700;
+    }
+
+    .gmail-message-checkbox {
+      width: 20px;
+      height: 20px;
+      cursor: pointer;
+    }
+
+    .gmail-message-content {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      min-width: 0;
+    }
+
+    .gmail-message-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 14px;
+      color: #202124;
+    }
+
+    .gmail-message-sender {
+      font-weight: inherit;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .gmail-message-subject {
+      font-weight: inherit;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .gmail-message-snippet {
+      font-size: 13px;
+      color: #5f6368;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .mail-warning-badge {
+      display: inline-block;
+      margin-left: 6px;
+      padding: 1px 8px;
+      border-radius: 10px;
+      font-size: 11px;
+      font-weight: 600;
+      color: #b3261e;
+      background: #fce8e6;
+      border: 1px solid #f6c7c3;
+      vertical-align: middle;
+    }
+
+    .gmail-message-time {
+      font-size: 12px;
+      color: #5f6368;
+      white-space: nowrap;
+    }
+
+    /* Gmail-style Detail Panel */
+    .gmail-detail-panel {
+      background: #ffffff;
+      padding: 24px;
+      overflow: auto;
+      animation: slideIn 0.3s ease-out;
+    }
+
+    @keyframes slideIn {
+      from {
+        transform: translateX(20px);
+        opacity: 0;
+      }
+      to {
+        transform: translateX(0);
+        opacity: 1;
+      }
+    }
+
+    .gmail-detail-header {
+      margin-bottom: 24px;
+    }
+
+    .gmail-detail-subject {
+      font-size: 22px;
+      font-weight: 400;
+      color: #202124;
+      margin: 0 0 16px 0;
+    }
+
+    .gmail-detail-meta {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-size: 13px;
+      color: #5f6368;
+      margin-bottom: 16px;
+    }
+
+    .gmail-detail-actions {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 24px;
+    }
+
+    .gmail-detail-content {
+      font-size: 14px;
+      line-height: 1.6;
+      color: #202124;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .gmail-detail-content.rich-html {
+      white-space: normal;
+      word-break: normal;
+      overflow-wrap: anywhere;
+      max-width: 100%;
+    }
+
+    .gmail-detail-content.rich-html p {
+      margin: 0 0 12px;
+    }
+
+    .gmail-detail-content.rich-html h1,
+    .gmail-detail-content.rich-html h2,
+    .gmail-detail-content.rich-html h3,
+    .gmail-detail-content.rich-html h4 {
+      margin: 16px 0 10px;
+      line-height: 1.35;
+      color: #202124;
+    }
+
+    .gmail-detail-content.rich-html ul,
+    .gmail-detail-content.rich-html ol {
+      margin: 8px 0 12px 22px;
+      padding: 0;
+    }
+
+    .gmail-detail-content.rich-html li {
+      margin: 4px 0;
+    }
+
+    .gmail-detail-content.rich-html a {
+      color: #1a73e8;
+      text-decoration: underline;
+      word-break: break-all;
+    }
+
+    .gmail-detail-content.rich-html img {
+      max-width: 100%;
+      height: auto;
+      border-radius: 6px;
+      display: inline-block;
+    }
+
+    .gmail-detail-content.rich-html table {
+      max-width: 100%;
+      border-collapse: collapse;
+      display: block;
+      overflow-x: auto;
+      margin: 12px 0;
+    }
+
+    .gmail-detail-content.rich-html td,
+    .gmail-detail-content.rich-html th {
+      border: 1px solid #e0e0e0;
+      padding: 8px;
+      vertical-align: top;
+    }
+
+    .gmail-detail-content.rich-html blockquote {
+      margin: 10px 0;
+      padding: 8px 12px;
+      border-left: 3px solid #dadce0;
+      color: #5f6368;
+      background: #f8f9fa;
+    }
+
+    .detail-media-wrap {
+      display: none;
+      margin-top: 14px;
+      padding: 12px;
+      border: 1px solid #e6e9ef;
+      border-radius: 10px;
+      background: #fafbfd;
+    }
+
+    .detail-media-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: #3c4043;
+      margin-bottom: 10px;
+    }
+
+    .detail-media-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+      gap: 10px;
+    }
+
+    .detail-media-item {
+      border: 1px solid #e0e0e0;
+      border-radius: 8px;
+      padding: 8px;
+      background: #ffffff;
+      font-size: 12px;
+      color: #5f6368;
+    }
+
+    .detail-media-item img,
+    .detail-media-item video {
+      width: 100%;
+      max-height: 160px;
+      object-fit: cover;
+      border-radius: 6px;
+      margin-bottom: 6px;
+      background: #f1f3f4;
+    }
+
+    .detail-media-item a {
+      color: #1a73e8;
+      text-decoration: none;
+      word-break: break-all;
+    }
+
+    .detail-warning-box {
+      margin-top: 12px;
+      padding: 10px 12px;
+      border-radius: 8px;
+      background: #fce8e6;
+      border: 1px solid #f6c7c3;
+      color: #b3261e;
+      font-size: 13px;
+      white-space: pre-wrap;
+      display: none;
+    }
+
+    .gmail-detail-empty {
+      text-align: center;
+      color: #5f6368;
+      padding: 80px 24px;
+      font-size: 14px;
     }
 
     .compose-modal-bg {
       position: fixed;
       inset: 0;
-      background: rgba(2, 8, 23, 0.55);
+      background: rgba(0, 0, 0, 0.4);
       display: none;
       align-items: center;
       justify-content: center;
@@ -109,41 +683,152 @@
     }
 
     .compose-modal {
-      width: min(620px, 100%);
-      border-radius: 16px;
-      border: 1px solid var(--border);
-      background: var(--bg-secondary);
-      box-shadow: var(--shadow-md);
-      transform: translateY(6px);
-      animation: composeIn 0.2s ease forwards;
+      width: min(680px, 100%);
+      border-radius: 8px;
+      background: #ffffff;
+      box-shadow: 0 8px 10px 1px rgba(0,0,0,.14), 0 3px 14px 2px rgba(0,0,0,.12), 0 5px 5px -3px rgba(0,0,0,.2);
+      transform: scale(0.9);
+      animation: composeIn 0.15s ease forwards;
     }
 
     @keyframes composeIn {
       to {
-        transform: translateY(0);
+        transform: scale(1);
       }
+    }
+
+    .compose-head {
+      background: #404040;
+      color: #ffffff;
+      padding: 12px 16px;
+      border-radius: 8px 8px 0 0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .compose-head h3 {
+      margin: 0;
+      font-size: 14px;
+      font-weight: 500;
+    }
+
+    .compose-head button {
+      background: transparent;
+      border: none;
+      color: #ffffff;
+      cursor: pointer;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 18px;
+    }
+
+    .compose-head button:hover {
+      background: rgba(255, 255, 255, 0.1);
+    }
+
+    .compose-body {
+      padding: 16px;
+    }
+
+    .compose-body .form-group {
+      display: grid;
+      margin-bottom: 12px;
+    }
+
+    .compose-body label {
+      font-size: 12px;
+      color: #5f6368;
+      margin-bottom: 4px;
+      font-weight: 500;
+    }
+
+    .compose-body input,
+    .compose-body textarea {
+      border: none;
+      border-bottom: 1px solid #dadce0;
+      background: transparent;
+      color: #202124;
+      font-family: inherit;
+      font-size: 14px;
+      padding: 8px 0;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+
+    .compose-body input:focus,
+    .compose-body textarea:focus {
+      border-bottom-color: #1a73e8;
+    }
+
+    .compose-body textarea {
+      min-height: 200px;
+      resize: vertical;
+    }
+
+    .compose-foot {
+      margin-top: 16px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .compose-foot button {
+      background: #1a73e8;
+      color: #ffffff;
+      border: none;
+      border-radius: 4px;
+      padding: 10px 24px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      box-shadow: 0 1px 2px 0 rgba(60,64,67,.3), 0 1px 3px 1px rgba(60,64,67,.15);
+    }
+
+    .compose-foot button:hover {
+      background: #1765cc;
+      box-shadow: 0 1px 3px 0 rgba(60,64,67,.3), 0 4px 8px 3px rgba(60,64,67,.15);
     }
 
     .toast {
       position: fixed;
       right: 16px;
       bottom: 16px;
-      padding: 10px 14px;
-      border-radius: 10px;
-      border: 1px solid var(--border);
-      background: var(--bg-secondary);
-      box-shadow: var(--shadow-md);
-      font-size: 0.9rem;
+      padding: 12px 16px;
+      border-radius: 4px;
+      background: #323232;
+      color: #ffffff;
+      font-size: 14px;
       opacity: 0;
       transform: translateY(8px);
       pointer-events: none;
       transition: opacity .2s ease, transform .2s ease;
       z-index: 60;
+      box-shadow: 0 4px 5px 0 rgba(0,0,0,.14), 0 1px 10px 0 rgba(0,0,0,.12), 0 2px 4px -1px rgba(0,0,0,.2);
     }
 
     .toast.show {
       opacity: 1;
       transform: translateY(0);
+    }
+
+    .message-feedback {
+      font-size: 13px;
+      color: #5f6368;
+    }
+
+    .message-feedback.success {
+      color: #1e8e3e;
+    }
+
+    .message-feedback.error {
+      color: #ea8600;
+      font-weight: 400;
+    }
+
+    .message-feedback.error-critical {
+      color: #d93025;
+      font-weight: 500;
     }
 
     @media (max-width: 1080px) {
@@ -157,95 +842,132 @@
     }
   </style>
 </head>
-<body class="mail-page">
-  <div class="mail-layout">
-    <aside class="mail-sidebar">
-      <div class="mail-brand">
-        <img src="{{ url_for('static', filename='image.png') }}" class="app-logo" alt="MiniMail Logo">
-        <h1>MiniMail<br>Hybrid Mail</h1>
+<body>
+  <div class="gmail-layout">
+    <!-- Gmail-style Sidebar -->
+    <aside class="gmail-sidebar">
+      <div class="sidebar-logo">
+        <img src="{{ url_for('static', filename='image.png') }}" alt="EditMail Logo">
+        <span class="sidebar-logo-text">EditMail</span>
       </div>
 
-      <button id="compose-open" class="btn btn-primary compose-btn" type="button">✉ Compose</button>
+      <button id="compose-open" class="gmail-compose-btn" type="button">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z"/></svg>
+        Compose
+      </button>
 
-      <div class="folder-list" aria-label="Folders">
-        <button class="folder-btn active" data-folder="inbox" type="button">Inbox</button>
-        <button class="folder-btn" data-folder="sent" type="button">Sent</button>
-        <button class="folder-btn" data-folder="starred" type="button">Starred</button>
-        <button class="folder-btn" data-folder="trash" type="button">Trash</button>
-        <button class="folder-btn" data-folder="junk" type="button">Junk</button>
+      <div class="gmail-folder-list" aria-label="Folders">
+        <button class="gmail-folder-btn active" data-folder="inbox" type="button">
+          <span class="folder-icon">📥</span>
+          Inbox
+        </button>
+        <button class="gmail-folder-btn" data-folder="starred" type="button">
+          <span class="folder-icon">⭐</span>
+          Starred
+        </button>
+        <button class="gmail-folder-btn" data-folder="sent" type="button">
+          <span class="folder-icon">📤</span>
+          Sent
+        </button>
+        <button class="gmail-folder-btn" data-folder="trash" type="button">
+          <span class="folder-icon">🗑️</span>
+          Trash
+        </button>
+        <button class="gmail-folder-btn" data-folder="junk" type="button">
+          <span class="folder-icon">⚠️</span>
+          Spam
+        </button>
       </div>
 
-      <a class="btn nav-btn" href="/login">Logout</a>
-
-      <div class="mail-user">
-        Logged in as<br>
-        <strong id="current-user"></strong>
+      <div style="margin-top: auto; padding: 16px; border-top: 1px solid #e0e0e0;">
+        <div style="font-size: 12px; color: #5f6368; margin-bottom: 6px;">Logged in as</div>
+        <div style="font-size: 14px; font-weight: 600; color: #202124; margin-bottom: 12px;" id="sidebar-current-user"></div>
+        <a href="/login" style="display: inline-block; padding: 8px 16px; background: #f8f9fa; border: 1px solid #dadce0; border-radius: 18px; color: #5f6368; text-decoration: none; font-size: 13px; font-weight: 500; transition: all 0.2s; text-align: center; width: 100%; box-sizing: border-box;" onmouseover="this.style.background='#e8eaed'; this.style.borderColor='#c4c7c5';" onmouseout="this.style.background='#f8f9fa'; this.style.borderColor='#dadce0';">Logout</a>
       </div>
     </aside>
 
-    <div>
-      <header class="hybrid-topbar">
-        <div class="source-toggle" role="group" aria-label="Source Toggle">
-          <button id="source-internal" class="active" type="button">Internal Mail</button>
-          <button id="source-external" type="button">External Mail</button>
+    <!-- Gmail-style Main Content -->
+    <div style="display: flex; flex-direction: column; min-height: 100vh;">
+      <!-- Gmail-style Top Bar -->
+      <header class="gmail-topbar">
+        <div class="gmail-search">
+          <span class="gmail-search-icon">🔍</span>
+          <input type="text" class="gmail-search-input" placeholder="Search mail" />
         </div>
-        <div class="panel-tools">
-          <button id="refresh-btn" class="btn btn-ghost" type="button">Refresh</button>
-          <button id="empty-trash-btn" class="btn btn-danger" type="button" style="display:none;">Empty Trash</button>
-          <button id="connect-gmail" class="btn btn-ghost" type="button">Connect Gmail</button>
+        <div class="gmail-topbar-actions">
+          <button class="gmail-icon-btn" title="Refresh" id="refresh-btn">🔄</button>
+        </div>
+        <div class="user-profile-section">
+          <div id="gmail-status-indicator" class="gmail-connection-status">
+            <span class="status-dot"></span>
+            <span id="gmail-status-text">Not Connected</span>
+          </div>
+          <button class="gmail-icon-btn" title="Connect Gmail" id="connect-gmail" style="color: #1a73e8;">📧</button>
+          <button class="gmail-icon-btn" title="Disconnect Gmail" id="disconnect-gmail" style="display:none; color: #ea4335;">🔌</button>
+          <button class="user-profile-button" title="User Profile">
+            <div class="user-avatar" id="user-avatar-topbar"></div>
+            <span id="current-user"></span>
+          </button>
         </div>
       </header>
 
-      <main class="hybrid-main">
-        <section class="mail-list-panel">
-          <div class="panel-head">
-            <h2 id="folder-title">Inbox</h2>
-            <div id="list-status" class="message-feedback"></div>
-          </div>
-          <div id="message-list" class="message-list" aria-live="polite"></div>
-        </section>
+      <!-- Gmail-style Toolbar -->
+      <div class="gmail-toolbar">
+        <div class="source-toggle-pills" role="group" aria-label="Source Toggle">
+          <button id="source-internal" class="source-pill active" type="button">Internal</button>
+          <button id="source-external" class="source-pill" type="button">Gmail</button>
+        </div>
+        <div style="flex: 1;"></div>
+        <div id="list-status" style="font-size: 13px; color: #5f6368;"></div>
+        <button id="empty-trash-btn" class="gmail-icon-btn" type="button" style="display:none;" title="Empty Trash">🗑️</button>
+      </div>
 
-        <section class="mail-detail-panel">
-          <article class="detail-card">
-            <div class="detail-head">
-              <div>
-                <h3 id="detail-subject">Select a message</h3>
-                <div id="detail-meta" class="detail-meta"></div>
-              </div>
-              <div id="detail-status"></div>
-            </div>
-
-            <div id="detail-content" class="detail-content detail-empty">Choose a message to view details.</div>
-            <div id="detail-actions" class="detail-actions"></div>
-            <div id="detail-result" class="message-feedback" role="status" aria-live="polite"></div>
-          </article>
-        </section>
+      <!-- Gmail-style Mail View -->
+      <main class="gmail-mail-view" style="flex: 1; overflow: auto;">
+        <div id="message-list" class="gmail-message-list" aria-live="polite"></div>
       </main>
+
+      <!-- Gmail-style Detail Panel (shown when message selected) -->
+      <div id="detail-panel" class="gmail-detail-panel" style="display: none;">
+        <div class="gmail-detail-header">
+          <button id="back-to-list-btn" style="background: transparent; border: none; cursor: pointer; font-size: 20px; margin-bottom: 12px; color: #5f6368; padding: 8px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center;" title="Back to list">←</button>
+          <h1 class="gmail-detail-subject" id="detail-subject">Select a message</h1>
+          <div class="gmail-detail-meta" id="detail-meta"></div>
+        </div>
+        <div class="gmail-detail-actions" id="detail-actions"></div>
+        <div class="gmail-detail-content" id="detail-content">Choose a message to view details.</div>
+        <div id="detail-media" class="detail-media-wrap"></div>
+        <div id="detail-warning" class="detail-warning-box"></div>
+        <div id="detail-result" style="margin-top: 16px; font-size: 13px;"></div>
+      </div>
     </div>
   </div>
 
   <div id="compose-modal-bg" class="compose-modal-bg" aria-hidden="true">
     <div class="compose-modal">
       <div class="compose-head">
-        <h3>Compose Message</h3>
-        <button id="compose-close" class="btn btn-ghost" type="button">Close</button>
+        <h3>New Message</h3>
+        <button id="compose-close" type="button">×</button>
       </div>
       <div class="compose-body">
         <div class="form-group">
           <label for="compose-to">To</label>
-          <input id="compose-to" placeholder="user@editmail.com or email@gmail.com" />
+          <input id="compose-to" placeholder="user@editmail.com or name@gmail.com" />
         </div>
         <div class="form-group">
           <label for="compose-subject">Subject</label>
-          <input id="compose-subject" placeholder="Subject" />
+          <input id="compose-subject" placeholder="" />
         </div>
         <div class="form-group">
-          <label for="compose-body">Body</label>
-          <textarea id="compose-body" placeholder="Write your message"></textarea>
+          <textarea id="compose-body" placeholder=""></textarea>
+        </div>
+        <div class="form-group">
+          <label for="compose-attachments">Attachments</label>
+          <input id="compose-attachments" type="file" multiple />
         </div>
         <div class="compose-foot">
+          <button id="compose-send" type="button">Send</button>
           <div id="compose-result" class="message-feedback" role="status" aria-live="polite"></div>
-          <button id="compose-send" class="btn btn-primary" type="button">Send</button>
         </div>
       </div>
     </div>
@@ -256,7 +978,11 @@
   <script>
     const params = new URLSearchParams(window.location.search);
     const username = params.get("username") || "";
-    document.getElementById("current-user").textContent = username || "Unknown";
+    const userDisplayName = username || "Unknown";
+    document.getElementById("current-user").textContent = userDisplayName;
+    document.getElementById("sidebar-current-user").textContent = userDisplayName;
+    const userInitial = userDisplayName.charAt(0).toUpperCase();
+    document.getElementById("user-avatar-topbar").textContent = userInitial;
 
     const state = {
       source: "internal",
@@ -264,7 +990,35 @@
       messages: [],
       selectedId: null,
       gmailConnected: false,
+      cache: {
+        internal: {},
+        external: {},
+      },
+      cacheErrors: {
+        internal: {},
+        external: {},
+      },
+      nextPageToken: {
+        internal: {},
+        external: {},
+      },
+      hasMore: {
+        internal: {},
+        external: {},
+      },
+      loadingMore: {
+        internal: {},
+        external: {},
+      },
     };
+
+    const FOLDERS = ["inbox", "sent", "starred", "trash", "junk"];
+    const SOURCES = ["internal", "external"];
+    const REFRESH_INTERVAL_MS = 60 * 1000;
+    let backgroundRefreshTimer = null;
+    let backgroundRefreshInFlight = false;
+    let composeMode = "send";
+    let editMessageId = null;
 
     function showToast(text) {
       const toast = document.getElementById("toast");
@@ -288,15 +1042,216 @@
       return state.messages.find((m) => String(m.id) === String(state.selectedId)) || null;
     }
 
+    function normalizeText(value) {
+      if (typeof value === "string") return value;
+      if (value === null || value === undefined) return "";
+      if (typeof value === "number" || typeof value === "boolean") return String(value);
+      if (typeof value === "object") {
+        if (typeof value.text === "string") return value.text;
+        if (typeof value.value === "string") return value.value;
+        try {
+          return JSON.stringify(value);
+        } catch {
+          return "";
+        }
+      }
+      return String(value);
+    }
+
+    function decodeHtmlEntities(value) {
+      const decoded = document.createElement("textarea");
+      decoded.innerHTML = normalizeText(value);
+      return decoded.value;
+    }
+
+    function stripHtmlTags(value) {
+      const temp = document.createElement("div");
+      temp.innerHTML = normalizeText(value);
+      return temp.textContent || temp.innerText || "";
+    }
+
+    function sanitizeHtml(value) {
+      const wrapper = document.createElement("div");
+      wrapper.innerHTML = normalizeText(value);
+
+      wrapper.querySelectorAll("script, style, iframe, object, embed, link, meta").forEach((node) => node.remove());
+
+      const all = wrapper.querySelectorAll("*");
+      for (const node of all) {
+        for (const attr of [...node.attributes]) {
+          const name = attr.name.toLowerCase();
+          const attrValue = attr.value || "";
+          if (name.startsWith("on")) {
+            node.removeAttribute(attr.name);
+            continue;
+          }
+          if ((name === "href" || name === "src") && /^\s*javascript:/i.test(attrValue)) {
+            node.removeAttribute(attr.name);
+          }
+        }
+      }
+
+      return wrapper.innerHTML;
+    }
+
+    function toDisplayText(value) {
+      return decodeHtmlEntities(normalizeText(value)).replace(/\*\*(.*?)\*\*/g, "$1").replace(/\*(.*?)\*/g, "$1");
+    }
+
+    function looksLikeHtml(value) {
+      return /<\/?[a-z][\s\S]*>/i.test(normalizeText(value));
+    }
+
+    function buildExternalAttachmentUrl(messageId, mediaItem) {
+      const query = new URLSearchParams({
+        username,
+        message_id: String(messageId || ""),
+        attachment_id: String(mediaItem.attachment_id || ""),
+        mime_type: String(mediaItem.mime_type || "application/octet-stream"),
+      });
+      return `/mail/external/attachment?${query.toString()}`;
+    }
+
+    function getMediaSourceUrl(message, mediaItem) {
+      if (!mediaItem) return "";
+      if (mediaItem.data_url) return String(mediaItem.data_url);
+      if (state.source === "internal" && mediaItem.attachment_id) {
+        const query = new URLSearchParams({
+          username,
+          attachment_id: String(mediaItem.attachment_id),
+        });
+        return `/mail/internal/attachment?${query.toString()}`;
+      }
+      if (state.source === "external" && mediaItem.attachment_id) {
+        return buildExternalAttachmentUrl(message.id, mediaItem);
+      }
+      return "";
+    }
+
+    function resolveInlineCidMedia(contentEl, message) {
+      const mediaItems = Array.isArray(message?.media_items) ? message.media_items : [];
+      if (!mediaItems.length) return;
+
+      const cidMap = new Map();
+      for (const item of mediaItems) {
+        const cid = String(item?.content_id || "").replace(/[<>]/g, "").toLowerCase();
+        if (cid) cidMap.set(cid, item);
+      }
+
+      if (!cidMap.size) return;
+      const cidNodes = contentEl.querySelectorAll('img[src^="cid:"], img[src^="CID:"]');
+      for (const node of cidNodes) {
+        const src = String(node.getAttribute("src") || "");
+        const cid = src.replace(/^cid:/i, "").replace(/[<>]/g, "").toLowerCase();
+        const item = cidMap.get(cid);
+        if (!item) continue;
+        const resolved = getMediaSourceUrl(message, item);
+        if (resolved) node.setAttribute("src", resolved);
+      }
+    }
+
+    function renderDetailMedia(message) {
+      const container = document.getElementById("detail-media");
+      const mediaItems = Array.isArray(message?.media_items) ? message.media_items : [];
+      const visibleItems = mediaItems.filter((item) => !(item?.is_inline && item?.content_id));
+
+      container.innerHTML = "";
+      if (!visibleItems.length) {
+        container.style.display = "none";
+        return;
+      }
+
+      const title = document.createElement("div");
+      title.className = "detail-media-title";
+      title.textContent = "Media & Attachments";
+      container.appendChild(title);
+
+      const grid = document.createElement("div");
+      grid.className = "detail-media-grid";
+
+      for (const mediaItem of visibleItems) {
+        const card = document.createElement("div");
+        card.className = "detail-media-item";
+        const sourceUrl = getMediaSourceUrl(message, mediaItem);
+        const mimeType = String(mediaItem?.mime_type || "");
+        const fileName = String(mediaItem?.filename || "Attachment");
+
+        if (mimeType.startsWith("image/") && sourceUrl) {
+          const image = document.createElement("img");
+          image.src = sourceUrl;
+          image.alt = fileName;
+          card.appendChild(image);
+        } else if (mimeType.startsWith("video/") && sourceUrl) {
+          const video = document.createElement("video");
+          video.src = sourceUrl;
+          video.controls = true;
+          card.appendChild(video);
+        }
+
+        const link = document.createElement("a");
+        link.href = sourceUrl || "#";
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        link.textContent = fileName;
+        if (!sourceUrl) {
+          link.removeAttribute("href");
+          link.style.color = "#5f6368";
+          link.style.cursor = "default";
+        }
+        card.appendChild(link);
+
+        grid.appendChild(card);
+      }
+
+      container.appendChild(grid);
+      container.style.display = "block";
+    }
+
+    function renderMessageBody(contentEl, rawValue, message) {
+      const decodedBody = toDisplayText(rawValue);
+      contentEl.classList.remove("rich-html");
+      if (!looksLikeHtml(decodedBody)) {
+        contentEl.textContent = decodedBody;
+        return;
+      }
+
+      try {
+        const safeHtml = sanitizeHtml(decodedBody);
+        if (!safeHtml || !safeHtml.trim()) {
+          contentEl.textContent = stripHtmlTags(decodedBody);
+          return;
+        }
+        contentEl.classList.add("rich-html");
+        contentEl.innerHTML = safeHtml;
+        resolveInlineCidMedia(contentEl, message);
+      } catch {
+        contentEl.textContent = stripHtmlTags(decodedBody);
+      }
+    }
+
+    function escapeHtml(value) {
+      return normalizeText(value)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/\"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
+
+    function showListView() {
+      document.getElementById("detail-panel").style.display = "none";
+      document.querySelector(".gmail-mail-view").style.display = "block";
+    }
+
     function setFolder(folder) {
       state.folder = folder;
       state.selectedId = null;
-      document.getElementById("folder-title").textContent = folder[0].toUpperCase() + folder.slice(1);
-      document.querySelectorAll(".folder-btn").forEach((button) => {
+      document.querySelectorAll(".gmail-folder-btn").forEach((button) => {
         button.classList.toggle("active", button.dataset.folder === folder);
       });
       document.getElementById("empty-trash-btn").style.display = folder === "trash" ? "inline-flex" : "none";
-      loadMessages();
+      showListView();
+      renderFromCache();
     }
 
     async function checkGmailConnection() {
@@ -304,62 +1259,326 @@
         const response = await fetch(`/gmail/status?username=${encodeURIComponent(username)}`);
         const data = await response.json();
         state.gmailConnected = Boolean(data.connected);
-        document.getElementById("connect-gmail").textContent = state.gmailConnected ? "Gmail Connected" : "Connect Gmail";
+        const connectBtn = document.getElementById("connect-gmail");
+        const disconnectBtn = document.getElementById("disconnect-gmail");
+        const statusIndicator = document.getElementById("gmail-status-indicator");
+        const statusText = document.getElementById("gmail-status-text");
+
+        if (state.gmailConnected) {
+          connectBtn.style.display = "none";
+          disconnectBtn.style.display = "inline-flex";
+          statusIndicator.classList.add("connected");
+          statusText.textContent = data.email || "Gmail Connected";
+        } else {
+          connectBtn.style.display = "inline-flex";
+          disconnectBtn.style.display = "none";
+          statusIndicator.classList.remove("connected");
+          statusText.textContent = "Not Connected";
+        }
       } catch {
-        document.getElementById("connect-gmail").textContent = "Connect Gmail";
+        // Ignore connection check errors
       }
     }
 
-    async function loadMessages() {
+    async function disconnectGmail() {
       const status = document.getElementById("list-status");
-      setFeedback(status, "Loading...");
+      if (!window.confirm("Disconnect Gmail for this user?")) return;
+
       try {
-        const response = await fetch(`/mail/list?username=${encodeURIComponent(username)}&source=${encodeURIComponent(state.source)}&folder=${encodeURIComponent(state.folder)}`);
+        const response = await fetch("/gmail/logout", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username }),
+        });
         const data = await response.json();
-        if (!response.ok) throw new Error(data.error || "failed to load messages");
-        state.messages = data.messages || [];
-        renderList();
-        renderDetail();
-        setFeedback(status, `${state.messages.length} messages`);
+        if (!response.ok) throw new Error(data.error || "disconnect failed");
+
+        state.gmailConnected = false;
+        state.cache.external = {};
+        state.cacheErrors.external = {};
+        state.nextPageToken.external = {};
+        state.hasMore.external = {};
+        state.loadingMore.external = {};
+
+        const connectBtn = document.getElementById("connect-gmail");
+        const disconnectBtn = document.getElementById("disconnect-gmail");
+        connectBtn.title = "Connect Gmail";
+        connectBtn.style.opacity = "0.6";
+        disconnectBtn.style.display = "none";
+
+        if (state.source === "external") {
+          state.messages = [];
+          renderFromCache();
+        }
+
+        setFeedback(status, "Gmail disconnected", "success");
+        showToast("Gmail disconnected");
       } catch (error) {
-        state.messages = [];
-        renderList();
-        renderDetail();
-        setFeedback(status, error.message, "error");
+        setFeedback(status, error.message || "disconnect failed", "error");
       }
+    }
+
+    function getFolderToken(source, folder) {
+      return state.nextPageToken[source][folder] || "";
+    }
+
+    async function fetchFolderMessages(source, folder, { pageToken = "", retryCount = 0 } = {}) {
+      const maxRetries = 2;
+      try {
+        const response = await fetch(`/mail/list?username=${encodeURIComponent(username)}&source=${encodeURIComponent(source)}&folder=${encodeURIComponent(folder)}&limit=20${pageToken ? `&page_token=${encodeURIComponent(pageToken)}` : ""}`);
+        const data = await response.json();
+        if (!response.ok) {
+          // Check if it's an SSL error that might be transient
+          const isSSLError = data.error && (data.error.includes('SSL') || data.error.includes('DECRYPTION'));
+          if (isSSLError && retryCount < maxRetries) {
+            // Wait a bit and retry
+            await new Promise(resolve => setTimeout(resolve, 1000 * (retryCount + 1)));
+            return fetchFolderMessages(source, folder, { pageToken, retryCount: retryCount + 1 });
+          }
+          throw new Error(data.error || `failed to load ${source}/${folder}`);
+        }
+        return {
+          messages: data.messages || [],
+          nextPageToken: data.next_page_token || "",
+        };
+      } catch (error) {
+        // If it's a network error and we haven't retried enough, try again
+        if (retryCount < maxRetries && error.message.includes('fetch')) {
+          await new Promise(resolve => setTimeout(resolve, 1000 * (retryCount + 1)));
+          return fetchFolderMessages(source, folder, { pageToken, retryCount: retryCount + 1 });
+        }
+        throw error;
+      }
+    }
+
+    function renderFromCache() {
+      const status = document.getElementById("list-status");
+      state.messages = state.cache[state.source][state.folder] || [];
+      renderList();
+      renderDetail();
+
+      if (state.source === "internal" && state.folder === "junk") {
+        setFeedback(status, "Internal spam section is under construction. Use Gmail source to view spam.");
+        return;
+      }
+
+      const error = state.cacheErrors[state.source][state.folder];
+      if (error) {
+        // Show a friendlier error message for external mail SSL issues
+        if (state.source === "external" && (error.includes('SSL') || error.includes('DECRYPTION'))) {
+          setFeedback(status, "Gmail temporarily unavailable (retrying...)", "error");
+        } else {
+          setFeedback(status, error, "error");
+        }
+        return;
+      }
+      const loadingText = state.loadingMore[state.source][state.folder] ? " (loading...)" : "";
+      const moreText = state.hasMore[state.source][state.folder] ? " (scroll for more)" : "";
+      setFeedback(status, `${state.messages.length} messages${moreText}${loadingText}`);
+    }
+
+    async function refreshFolder(source, folder, { silent = false, append = false } = {}) {
+      const status = document.getElementById("list-status");
+      if (!silent && state.source === source && state.folder === folder) {
+        setFeedback(status, append ? "Loading more..." : "Refreshing...");
+      }
+
+      if (source === "internal" && folder === "junk") {
+        state.cache[source][folder] = [];
+        state.nextPageToken[source][folder] = "";
+        state.hasMore[source][folder] = false;
+        delete state.cacheErrors[source][folder];
+        if (!silent && state.source === source && state.folder === folder) {
+          renderFromCache();
+        }
+        return;
+      }
+
+      try {
+        const pageToken = append ? getFolderToken(source, folder) : "";
+        const result = await fetchFolderMessages(source, folder, { pageToken });
+        const nextMessages = (result.messages || []).map((message) => ({
+          ...message,
+          id: String(message?.id ?? ""),
+        }));
+
+        if (append) {
+          const previous = state.cache[source][folder] || [];
+          state.cache[source][folder] = [...previous, ...nextMessages];
+        } else {
+          state.cache[source][folder] = nextMessages;
+          state.selectedId = null;
+        }
+
+        state.nextPageToken[source][folder] = result.nextPageToken || "";
+        state.hasMore[source][folder] = Boolean(result.nextPageToken);
+        delete state.cacheErrors[source][folder];
+      } catch (error) {
+        // Keep existing messages if available (graceful degradation)
+        if (!state.cache[source][folder]) {
+          state.cache[source][folder] = [];
+        }
+        // Only store error if it's for the currently visible source
+        // Background errors for other sources should be silent
+        if (!silent || (state.source === source && state.folder === folder)) {
+          state.cacheErrors[source][folder] = error.message;
+        }
+      }
+      if (!silent && state.source === source && state.folder === folder) {
+        renderFromCache();
+      }
+    }
+
+    async function loadMoreCurrentFolder() {
+      const source = state.source;
+      const folder = state.folder;
+
+      if (source !== "external") return;
+      if (!state.hasMore[source][folder]) return;
+      if (state.loadingMore[source][folder]) return;
+
+      state.loadingMore[source][folder] = true;
+      try {
+        await refreshFolder(source, folder, { silent: true, append: true });
+      } finally {
+        state.loadingMore[source][folder] = false;
+        if (state.source === source && state.folder === folder) {
+          renderFromCache();
+        }
+      }
+    }
+
+    async function refreshCurrentFolder() {
+      await refreshFolder(state.source, state.folder);
+    }
+
+    async function primeSourceFolders(source) {
+      // Keep background traffic minimal on low-resource hosting tiers.
+      await refreshFolder(source, state.folder, { silent: true, append: false });
+    }
+
+    function isSourcePrimed(source) {
+      return Array.isArray(state.cache[source][state.folder]);
+    }
+
+    async function ensureSourcePrimed(source) {
+      if (source === "external" && !state.gmailConnected) {
+        return;
+      }
+      if (isSourcePrimed(source)) {
+        return;
+      }
+      await primeSourceFolders(source);
+    }
+
+    async function refreshAllFoldersSilent({ renderCurrent = false } = {}) {
+      if (backgroundRefreshInFlight) return;
+      backgroundRefreshInFlight = true;
+
+      const selectedIdBefore = state.selectedId;
+      const currentSourceBefore = state.source;
+      const currentFolderBefore = state.folder;
+      const sourceToRefresh = state.source;
+      const folderToRefresh = state.folder;
+
+      try {
+        await refreshFolder(sourceToRefresh, folderToRefresh, { silent: true, append: false });
+
+        if (renderCurrent) {
+          const currentMessages = state.cache[state.source][state.folder] || [];
+          if (
+            state.source === currentSourceBefore &&
+            state.folder === currentFolderBefore &&
+            selectedIdBefore &&
+            !currentMessages.some((message) => String(message.id) === String(selectedIdBefore))
+          ) {
+            state.selectedId = null;
+          }
+          renderFromCache();
+        }
+      } finally {
+        backgroundRefreshInFlight = false;
+      }
+    }
+
+    function startBackgroundRefresh() {
+      if (backgroundRefreshTimer) {
+        clearInterval(backgroundRefreshTimer);
+      }
+      backgroundRefreshTimer = window.setInterval(() => {
+        refreshAllFoldersSilent({ renderCurrent: true });
+      }, REFRESH_INTERVAL_MS);
+    }
+
+    async function preloadAllFolders() {
+      const status = document.getElementById("list-status");
+      setFeedback(status, "Loading mail...");
+
+      await refreshFolder("internal", "inbox", { silent: true, append: false });
+
+      await checkGmailConnection();
+
+      // Clear loading message after initial load
+      renderFromCache();
     }
 
     function renderList() {
       const list = document.getElementById("message-list");
+      const detailPanel = document.getElementById("detail-panel");
+      
       list.innerHTML = "";
+      
       if (!state.messages.length) {
-        const empty = document.createElement("div");
-        empty.className = "message-card";
-        empty.innerHTML = `<p class="message-title">No messages</p><p class="message-preview">Nothing in ${state.folder}.</p>`;
-        list.appendChild(empty);
+        list.innerHTML = '<div class="gmail-detail-empty">No messages in ' + state.folder + '</div>';
         return;
       }
 
       for (const message of state.messages) {
-        const card = document.createElement("article");
-        card.className = `message-card${String(message.id) === String(state.selectedId) ? " active" : ""}`;
-        card.innerHTML = `
-          <div class="message-row">
-            <p class="message-title">${message.subject || "(No subject)"}</p>
-            <p class="message-time">${message.timestamp_sent || ""}</p>
+        const item = document.createElement("div");
+        const isActive = String(message.id) === String(state.selectedId);
+        const isUnread = (message.status || "").toUpperCase() === "UNREAD";
+        
+        item.className = `gmail-message-item${isActive ? " active" : ""}${isUnread ? " unread" : ""}`;
+        
+        const senderRaw = state.source === "external" && state.folder === "sent"
+          ? (message.receiver ? `To: ${toDisplayText(message.receiver)}` : "To: Unknown")
+          : toDisplayText(message.sender || message.receiver || "Unknown");
+        const sender = escapeHtml(senderRaw);
+        const subject = escapeHtml(toDisplayText(message.subject || "(No subject)"));
+        const snippet = toDisplayText(message.content || message.snippet || "");
+        // Show preview as plain text, decode HTML entities, and strip tags
+        const snippetPreview = toDisplayText(stripHtmlTags(snippet)).slice(0, 100);
+        // Only show unsupported tag for non-image types
+        const attachmentTag = message.has_attachment ? '<span class="mail-warning-badge">media/attachment</span>' : "";
+        let unsupportedTag = "";
+        if (message.has_unsupported_body && !(message.media_items && message.media_items.some(m => m.mime_type && m.mime_type.startsWith('image/')))) {
+          unsupportedTag = '<span class="mail-warning-badge">unsupported type</span>';
+        }
+        const time = message.timestamp_sent || "";
+        const displayTime = time ? new Date(time).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : "";
+        
+        item.innerHTML = `
+          <div style="display: flex; align-items: center; gap: 8px;">
+            ${message.is_starred ? '<span style="color: #f9ab00; font-size: 16px;">★</span>' : '<span style="color: #dadce0; font-size: 16px;">☆</span>'}
           </div>
-          <div class="message-row">
-            ${statusBadge(message.status)}
-            <span class="message-time">${message.sender || message.receiver || ""}</span>
+          <div class="gmail-message-content">
+            <div class="gmail-message-header">
+              <span class="gmail-message-sender">${sender}</span>
+              <span class="gmail-message-subject"> - ${subject}</span>
+            </div>
+            <div class="gmail-message-snippet">${snippetPreview}${attachmentTag}${unsupportedTag}</div>
           </div>
-          <p class="message-preview">${message.content || message.snippet || ""}</p>
+          <div class="gmail-message-time">${displayTime}</div>
         `;
-        card.addEventListener("click", () => {
+        
+        item.addEventListener("click", () => {
           state.selectedId = message.id;
-          renderList();
+          detailPanel.style.display = "block";
+          document.querySelector(".gmail-mail-view").style.display = "none";
           renderDetail();
         });
-        list.appendChild(card);
+        
+        list.appendChild(item);
       }
     }
 
@@ -367,52 +1586,205 @@
       const message = activeMessage();
       const subject = document.getElementById("detail-subject");
       const meta = document.getElementById("detail-meta");
-      const status = document.getElementById("detail-status");
       const content = document.getElementById("detail-content");
+      const mediaWrap = document.getElementById("detail-media");
+      const warningBox = document.getElementById("detail-warning");
       const actions = document.getElementById("detail-actions");
 
       if (!message) {
-        subject.textContent = "Select a message";
-        meta.innerHTML = "";
-        status.innerHTML = "";
-        content.className = "detail-content detail-empty";
-        content.textContent = "Choose a message to view details.";
-        actions.innerHTML = "";
+        mediaWrap.style.display = "none";
         return;
       }
 
-      subject.textContent = message.subject || "(No subject)";
+      subject.textContent = toDisplayText(message.subject || "(No subject)");
       meta.innerHTML = `
-        <span>From: ${message.sender || "-"}</span>
-        <span>To: ${message.receiver || "-"}</span>
-        <span>ID: ${message.id || "-"}</span>
+        <span><strong>From:</strong> ${escapeHtml(toDisplayText(message.sender || "-"))}</span>
+        <span><strong>To:</strong> ${escapeHtml(toDisplayText(message.receiver || "-"))}</span>
+        <span><strong>Date:</strong> ${escapeHtml(toDisplayText(message.timestamp_sent || "-"))}</span>
       `;
-      status.innerHTML = statusBadge(message.status);
-      content.className = "detail-content";
-      content.textContent = message.content || message.snippet || "";
+      content.className = "gmail-detail-content";
+      const baseText = message.content || message.snippet || "";
+      const extraInfo = [];
+      if (message.has_attachment) extraInfo.push("Contains media/attachments");
+      // Only warn for unsupported if not an image
+      if (message.has_unsupported_body && !(message.media_items && message.media_items.some(m => m.mime_type && m.mime_type.startsWith('image/')))) {
+        extraInfo.push("Contains unsupported content type");
+      }
+      renderMessageBody(content, baseText, message);
+      renderDetailMedia(message);
+      if (extraInfo.length) {
+        warningBox.textContent = extraInfo.join("\n");
+        warningBox.style.display = "block";
+      } else {
+        warningBox.textContent = "";
+        warningBox.style.display = "none";
+      }
 
       actions.innerHTML = "";
-
+      // Star button
       const starBtn = document.createElement("button");
-      starBtn.className = "btn btn-ghost";
-      starBtn.type = "button";
-      starBtn.textContent = message.is_starred ? "Unstar" : "Star";
+      starBtn.className = "gmail-icon-btn";
+      starBtn.innerHTML = message.is_starred ? "★ Unstar" : "☆ Star";
+      starBtn.style.padding = "8px 16px";
+      starBtn.style.borderRadius = "20px";
+      starBtn.style.fontSize = "13px";
+      starBtn.style.fontWeight = "500";
       starBtn.addEventListener("click", () => updateStar(message));
       actions.appendChild(starBtn);
 
-      const spamBtn = document.createElement("button");
-      spamBtn.className = "btn btn-ghost";
-      spamBtn.type = "button";
-      spamBtn.textContent = message.is_spam ? "Not Junk" : "Mark Junk";
-      spamBtn.addEventListener("click", () => updateSpam(message));
-      actions.appendChild(spamBtn);
+      if (state.folder !== "trash") {
+        const trashBtn = document.createElement("button");
+        trashBtn.className = "delete-btn";
+        trashBtn.innerHTML = "🗑 Move to Trash";
+        trashBtn.style.padding = "8px 16px";
+        trashBtn.style.borderRadius = "20px";
+        trashBtn.style.fontSize = "13px";
+        trashBtn.style.fontWeight = "500";
+        trashBtn.addEventListener("click", () => moveToTrash(message));
+        actions.appendChild(trashBtn);
+      } else {
+        const deleteForeverBtn = document.createElement("button");
+        deleteForeverBtn.className = "delete-btn";
+        deleteForeverBtn.innerHTML = "🗑 Delete Forever";
+        deleteForeverBtn.style.padding = "8px 16px";
+        deleteForeverBtn.style.borderRadius = "20px";
+        deleteForeverBtn.style.fontSize = "13px";
+        deleteForeverBtn.style.fontWeight = "500";
+        deleteForeverBtn.addEventListener("click", () => deleteMessageForever(message));
+        actions.appendChild(deleteForeverBtn);
+      }
 
-      const trashBtn = document.createElement("button");
-      trashBtn.className = "btn btn-danger";
-      trashBtn.type = "button";
-      trashBtn.textContent = "Move to Trash";
-      trashBtn.addEventListener("click", () => moveToTrash(message));
-      actions.appendChild(trashBtn);
+      // Internal unread sent messages can still be edited before receiver reads them.
+      if (
+        state.source === "internal" &&
+        state.folder === "sent" &&
+        (message.status || "").toUpperCase() === "UNREAD" &&
+        String(message.sender || "").toLowerCase() === String(username || "").toLowerCase()
+      ) {
+        // Edit button
+        const editBtn = document.createElement("button");
+        editBtn.className = "edit-btn";
+        editBtn.innerHTML = "✏ Edit";
+        editBtn.style.padding = "8px 16px";
+        editBtn.style.borderRadius = "20px";
+        editBtn.style.fontSize = "13px";
+        editBtn.style.fontWeight = "500";
+        editBtn.addEventListener("click", () => openEditModal(message));
+        actions.appendChild(editBtn);
+
+        const deleteBtn = document.createElement("button");
+        deleteBtn.className = "delete-btn";
+        deleteBtn.innerHTML = "🗑 Delete";
+        deleteBtn.style.padding = "8px 16px";
+        deleteBtn.style.borderRadius = "20px";
+        deleteBtn.style.fontSize = "13px";
+        deleteBtn.style.fontWeight = "500";
+        deleteBtn.addEventListener("click", () => deleteInternalUnreadMessage(message));
+        actions.appendChild(deleteBtn);
+      }
+    }
+
+    // Edit modal logic
+    function openEditModal(message) {
+      composeMode = "edit";
+      editMessageId = String(message.id);
+      document.getElementById("compose-modal-bg").classList.add("open");
+      document.getElementById("compose-modal-bg").setAttribute("aria-hidden", "false");
+      document.getElementById("compose-to").value = message.receiver;
+      document.getElementById("compose-subject").value = message.subject;
+      document.getElementById("compose-body").value = message.content;
+      document.getElementById("compose-to").disabled = true;
+      document.getElementById("compose-attachments").disabled = true;
+      document.getElementById("compose-send").textContent = "Save";
+    }
+
+    async function submitEditInternal() {
+      const subject = document.getElementById("compose-subject").value.trim();
+      const body = document.getElementById("compose-body").value.trim();
+      const feedback = document.getElementById("compose-result");
+      if (!editMessageId || !subject || !body) {
+        setFeedback(feedback, "Subject and body required", "error");
+        return;
+      }
+      const sendBtn = document.getElementById("compose-send");
+      sendBtn.disabled = true;
+      try {
+        const response = await fetch("/mail/internal/edit", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username, message_id: String(editMessageId), subject, body }),
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "edit failed");
+        setFeedback(feedback, "Message Edited", "success");
+        showToast("Message Edited");
+        closeCompose();
+        refreshFolder(state.source, "sent", { silent: true, append: false }).then(renderFromCache);
+      } catch (error) {
+        setFeedback(feedback, error.message, "error");
+      } finally {
+        sendBtn.disabled = false;
+        sendBtn.textContent = "Send";
+        composeMode = "send";
+        editMessageId = null;
+        document.getElementById("compose-to").disabled = false;
+        document.getElementById("compose-attachments").disabled = false;
+      }
+    }
+
+    async function deleteMessageForever(message) {
+      const result = document.getElementById("detail-result");
+      try {
+        const response = await fetch("/mail/delete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            username,
+            source: state.source,
+            message_id: String(message.id),
+          }),
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "delete failed");
+        setFeedback(result, data.message || "Message deleted", "success");
+        showToast(data.message || "Message deleted");
+        await Promise.all([
+          refreshFolder(state.source, state.folder, { silent: true, append: false }),
+          refreshFolder(state.source, "trash", { silent: true, append: false }),
+        ]);
+        document.getElementById("detail-panel").style.display = "none";
+        document.querySelector(".gmail-mail-view").style.display = "block";
+        state.selectedId = null;
+        renderFromCache();
+      } catch (error) {
+        setFeedback(result, error.message, "error");
+      }
+    }
+
+    async function deleteInternalUnreadMessage(message) {
+      const result = document.getElementById("detail-result");
+      try {
+        const response = await fetch("/mail/internal/delete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            username,
+            message_id: String(message.id),
+            hard_delete_unread: true,
+          }),
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "delete failed");
+        setFeedback(result, "Message deleted", "success");
+        showToast("Message deleted");
+        await refreshFolder("internal", "sent", { silent: true, append: false });
+        document.getElementById("detail-panel").style.display = "none";
+        document.querySelector(".gmail-mail-view").style.display = "block";
+        state.selectedId = null;
+        renderFromCache();
+      } catch (error) {
+        setFeedback(result, error.message, "error");
+      }
     }
 
     async function updateStar(message) {
@@ -431,29 +1803,16 @@
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || "star failed");
         setFeedback(result, data.message || "Star updated", "success");
-        await loadMessages();
-      } catch (error) {
-        setFeedback(result, error.message, "error");
-      }
-    }
-
-    async function updateSpam(message) {
-      const result = document.getElementById("detail-result");
-      try {
-        const response = await fetch("/mail/spam", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            username,
-            source: state.source,
-            message_id: message.id,
-            is_spam: !message.is_spam,
-          }),
-        });
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.error || "junk update failed");
-        setFeedback(result, data.message || "Junk updated", "success");
-        await loadMessages();
+        showToast(message.is_starred ? "Removed star" : "Added star");
+        await Promise.all([
+          refreshFolder(state.source, state.folder, { silent: true, append: false }),
+          refreshFolder(state.source, "starred", { silent: true, append: false }),
+        ]);
+        renderFromCache();
+        // Update detail view if still open
+        if (state.selectedId === message.id) {
+          renderDetail();
+        }
       } catch (error) {
         setFeedback(result, error.message, "error");
       }
@@ -470,7 +1829,16 @@
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || "move to trash failed");
         setFeedback(result, data.message || "Moved to trash", "success");
-        await loadMessages();
+        showToast("Message moved to trash");
+        await Promise.all([
+          refreshFolder(state.source, state.folder, { silent: true, append: false }),
+          refreshFolder(state.source, "trash", { silent: true, append: false }),
+        ]);
+        // Go back to list view
+        document.getElementById("detail-panel").style.display = "none";
+        document.querySelector(".gmail-mail-view").style.display = "block";
+        state.selectedId = null;
+        renderFromCache();
       } catch (error) {
         setFeedback(result, error.message, "error");
       }
@@ -486,37 +1854,87 @@
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || "empty trash failed");
         setFeedback(result, `${data.message} (${data.deleted || 0})`, "success");
-        await loadMessages();
+        await refreshFolder(state.source, "trash", { silent: true, append: false });
+        renderFromCache();
       } catch (error) {
         setFeedback(result, error.message, "error");
       }
     }
 
     function openCompose() {
-      document.getElementById("compose-modal-bg").classList.add("open");
+      const modalBg = document.getElementById("compose-modal-bg");
+      modalBg.classList.add("open");
+      modalBg.setAttribute("aria-hidden", "false");
       document.getElementById("compose-to").focus();
     }
 
     function closeCompose() {
-      document.getElementById("compose-modal-bg").classList.remove("open");
+      const modalBg = document.getElementById("compose-modal-bg");
+      modalBg.classList.remove("open");
+      modalBg.setAttribute("aria-hidden", "true");
+      composeMode = "send";
+      editMessageId = null;
+      document.getElementById("compose-send").textContent = "Send";
+      document.getElementById("compose-to").disabled = false;
+      document.getElementById("compose-attachments").disabled = false;
+      setFeedback(document.getElementById("compose-result"), "");
+    }
+
+    function validateComposeRecipient(toValue) {
+      const recipient = String(toValue || "").trim().toLowerCase();
+      if (!recipient.includes("@")) {
+        return "Use full email: username@editmail.com for internal, or @gmail.com/@yahoo.com/etc for external";
+      }
+      const parts = recipient.split("@");
+      if (parts.length !== 2 || !parts[0] || !parts[1]) {
+        return "Invalid recipient format. Use username@editmail.com or a valid external email";
+      }
+      if (parts[1] !== "editmail.com" && !parts[1].includes(".")) {
+        return "External email looks incomplete. Use full domain like @gmail.com or @yahoo.com";
+      }
+      return "";
     }
 
     async function sendCompose() {
+      if (composeMode === "edit") {
+        await submitEditInternal();
+        return;
+      }
+
       const to = document.getElementById("compose-to").value.trim();
       const subject = document.getElementById("compose-subject").value.trim();
       const body = document.getElementById("compose-body").value.trim();
+      const attachmentInput = document.getElementById("compose-attachments");
       const feedback = document.getElementById("compose-result");
+      const sendBtn = document.getElementById("compose-send");
 
       if (!username || !to || !subject || !body) {
         setFeedback(feedback, "to, subject, and body are required", "error");
         return;
       }
 
+      const recipientError = validateComposeRecipient(to);
+      if (recipientError) {
+        setFeedback(feedback, recipientError, "error");
+        return;
+      }
+
+      sendBtn.disabled = true;
+      sendBtn.textContent = "Sending...";
+
       try {
+        const formData = new FormData();
+        formData.append("username", username);
+        formData.append("to", to);
+        formData.append("subject", subject);
+        formData.append("body", body);
+        for (const file of Array.from(attachmentInput?.files || [])) {
+          formData.append("attachments", file, file.name);
+        }
+
         const response = await fetch("/mail/send", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ username, to, subject, body }),
+          body: formData,
         });
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || "send failed");
@@ -526,34 +1944,95 @@
         document.getElementById("compose-to").value = "";
         document.getElementById("compose-subject").value = "";
         document.getElementById("compose-body").value = "";
-        closeCompose();
-        if (state.folder === "sent") {
-          await loadMessages();
+        if (attachmentInput) {
+          attachmentInput.value = "";
         }
+        closeCompose();
+
+        const routedSource = data.channel === "external" ? "external" : "internal";
+
+        refreshFolder(routedSource, "sent", { silent: true, append: false })
+          .then(() => {
+            if (state.source === routedSource && state.folder === "sent") {
+              renderFromCache();
+            }
+          })
+          .catch(() => {
+            // Keep send success UX even if background refresh fails
+          });
       } catch (error) {
         setFeedback(feedback, error.message, "error");
+      } finally {
+        sendBtn.disabled = false;
+        sendBtn.textContent = "Send";
       }
     }
 
     document.getElementById("source-internal").addEventListener("click", () => {
+      const source = "internal";
       state.source = "internal";
       document.getElementById("source-internal").classList.add("active");
       document.getElementById("source-external").classList.remove("active");
-      loadMessages();
+      // Clear status briefly to avoid showing stale errors from other source
+      const status = document.getElementById("list-status");
+      setFeedback(status, "Switching to Internal...");
+      renderFromCache();
+      ensureSourcePrimed(source).then(() => {
+        if (state.source === source) {
+          renderFromCache();
+        }
+      });
     });
 
     document.getElementById("source-external").addEventListener("click", () => {
+      const source = "external";
       state.source = "external";
       document.getElementById("source-external").classList.add("active");
       document.getElementById("source-internal").classList.remove("active");
-      loadMessages();
+      // Clear status briefly to avoid showing stale errors from other source
+      const status = document.getElementById("list-status");
+      setFeedback(status, "Switching to Gmail...");
+      renderFromCache();
+      ensureSourcePrimed(source).then(() => {
+        if (state.source === source) {
+          renderFromCache();
+        }
+      });
     });
 
-    document.querySelectorAll(".folder-btn").forEach((button) => {
-      button.addEventListener("click", () => setFolder(button.dataset.folder));
+    document.querySelectorAll(".gmail-folder-btn").forEach((button) => {
+      button.addEventListener("click", () => {
+        const folder = button.dataset.folder;
+        if (!folder) {
+          return;
+        }
+        setFolder(folder);
+        refreshFolder(state.source, folder, { silent: true, append: false }).then(() => {
+          if (state.folder === folder) {
+            renderFromCache();
+          }
+        });
+      });
     });
 
-    document.getElementById("refresh-btn").addEventListener("click", loadMessages);
+    document.querySelector(".gmail-mail-view").addEventListener("scroll", (event) => {
+      if (state.source !== "external") return;
+      const target = event.currentTarget;
+      const nearBottom = target.scrollTop + target.clientHeight >= target.scrollHeight - 120;
+      if (nearBottom) {
+        loadMoreCurrentFolder();
+      }
+    });
+
+    // Back button handler
+    document.getElementById("back-to-list-btn").addEventListener("click", () => {
+      document.getElementById("detail-panel").style.display = "none";
+      document.querySelector(".gmail-mail-view").style.display = "block";
+      state.selectedId = null;
+      renderList();
+    });
+
+    document.getElementById("refresh-btn").addEventListener("click", refreshCurrentFolder);
     document.getElementById("empty-trash-btn").addEventListener("click", emptyTrash);
     document.getElementById("compose-open").addEventListener("click", openCompose);
     document.getElementById("compose-close").addEventListener("click", closeCompose);
@@ -564,8 +2043,10 @@
       window.location.href = `/gmail/login?username=${encodeURIComponent(username)}`;
     });
 
-    loadMessages();
-    checkGmailConnection();
+    document.getElementById("disconnect-gmail").addEventListener("click", disconnectGmail);
+
+    preloadAllFolders();
+    startBackgroundRefresh();
 
     if ("serviceWorker" in navigator) {
       window.addEventListener("load", () => {

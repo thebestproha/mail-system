@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: editmail
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn render_runner.render_app:app -c gunicorn.conf.py
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: WEB_CONCURRENCY
+        value: "1"
+      - key: REQUEST_TIMEOUT_SECONDS
+        value: "3"
+      - key: REPLICA_TIMEOUT_SECONDS
+        value: "0.8"
+      - key: FLASK_SECRET_KEY
+        generateValue: true
+      - key: DATABASE_URL
+        sync: false

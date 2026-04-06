@@ -26,6 +26,12 @@ def get_db_pool():
             minconn=1,
             maxconn=5,
             dsn=os.environ.get("DATABASE_URL"),
+            connect_timeout=int(os.environ.get("DB_CONNECT_TIMEOUT_SECONDS", "6")),
+            keepalives=1,
+            keepalives_idle=int(os.environ.get("DB_KEEPALIVE_IDLE_SECONDS", "30")),
+            keepalives_interval=int(os.environ.get("DB_KEEPALIVE_INTERVAL_SECONDS", "10")),
+            keepalives_count=int(os.environ.get("DB_KEEPALIVE_COUNT", "5")),
+            application_name="editmail-server3",
         )
     return db_pool
 
@@ -48,6 +54,17 @@ def init_db() -> None:
     connection = pool.getconn()
     try:
         with connection.cursor() as cursor:
+            cursor.execute(
+            """
+            DO $$
+            BEGIN
+                CREATE TYPE message_delete_state AS ENUM ('ACTIVE', 'TRASHED', 'DELETED');
+            EXCEPTION
+                WHEN duplicate_object THEN NULL;
+            END
+            $$;
+            """
+        )
             cursor.execute(
             """
             CREATE TABLE IF NOT EXISTS messages (
@@ -81,10 +98,82 @@ def init_db() -> None:
                 "ALTER TABLE messages ADD COLUMN IF NOT EXISTS is_spam BOOLEAN DEFAULT FALSE"
             )
             cursor.execute(
-                "ALTER TABLE messages ADD COLUMN IF NOT EXISTS deleted_for_sender BOOLEAN DEFAULT FALSE"
+                "ALTER TABLE messages ADD COLUMN IF NOT EXISTS deleted_for_sender message_delete_state DEFAULT 'ACTIVE'"
             )
             cursor.execute(
-                "ALTER TABLE messages ADD COLUMN IF NOT EXISTS deleted_for_receiver BOOLEAN DEFAULT FALSE"
+                "ALTER TABLE messages ADD COLUMN IF NOT EXISTS deleted_for_receiver message_delete_state DEFAULT 'ACTIVE'"
+            )
+            cursor.execute(
+            """
+            DO $$
+            BEGIN
+                IF EXISTS (
+                    SELECT 1
+                    FROM information_schema.columns
+                    WHERE table_name = 'messages'
+                      AND column_name = 'deleted_for_sender'
+                      AND data_type = 'boolean'
+                ) THEN
+                    ALTER TABLE messages ALTER COLUMN deleted_for_sender DROP DEFAULT;
+                    ALTER TABLE messages
+                    ALTER COLUMN deleted_for_sender
+                    TYPE message_delete_state
+                    USING (
+                        CASE
+                            WHEN COALESCE(deleted_for_sender, FALSE) = TRUE THEN 'DELETED'::message_delete_state
+                            WHEN COALESCE(hidden_for_sender, FALSE) = TRUE THEN 'TRASHED'::message_delete_state
+                            ELSE 'ACTIVE'::message_delete_state
+                        END
+                    );
+                END IF;
+            END
+            $$;
+            """
+        )
+            cursor.execute(
+            """
+            DO $$
+            BEGIN
+                IF EXISTS (
+                    SELECT 1
+                    FROM information_schema.columns
+                    WHERE table_name = 'messages'
+                      AND column_name = 'deleted_for_receiver'
+                      AND data_type = 'boolean'
+                ) THEN
+                    ALTER TABLE messages ALTER COLUMN deleted_for_receiver DROP DEFAULT;
+                    ALTER TABLE messages
+                    ALTER COLUMN deleted_for_receiver
+                    TYPE message_delete_state
+                    USING (
+                        CASE
+                            WHEN COALESCE(deleted_for_receiver, FALSE) = TRUE THEN 'DELETED'::message_delete_state
+                            WHEN COALESCE(hidden_for_receiver, FALSE) = TRUE THEN 'TRASHED'::message_delete_state
+                            ELSE 'ACTIVE'::message_delete_state
+                        END
+                    );
+                END IF;
+            END
+            $$;
+            """
+        )
+            cursor.execute(
+                "UPDATE messages SET deleted_for_sender = 'TRASHED' WHERE hidden_for_sender = TRUE AND COALESCE(deleted_for_sender::text, 'ACTIVE') = 'ACTIVE'"
+            )
+            cursor.execute(
+                "UPDATE messages SET deleted_for_receiver = 'TRASHED' WHERE hidden_for_receiver = TRUE AND COALESCE(deleted_for_receiver::text, 'ACTIVE') = 'ACTIVE'"
+            )
+            cursor.execute(
+                "ALTER TABLE messages ALTER COLUMN deleted_for_sender SET DEFAULT 'ACTIVE'"
+            )
+            cursor.execute(
+                "ALTER TABLE messages ALTER COLUMN deleted_for_receiver SET DEFAULT 'ACTIVE'"
+            )
+            cursor.execute(
+                "ALTER TABLE messages ALTER COLUMN deleted_for_sender SET NOT NULL"
+            )
+            cursor.execute(
+                "ALTER TABLE messages ALTER COLUMN deleted_for_receiver SET NOT NULL"
             )
 
         connection.commit()
@@ -215,15 +304,17 @@ def get_messages(username):
 @app.put("/edit/<message_id>")
 def edit_message(message_id):
     payload = request.get_json(silent=True) or {}
-    new_content = payload.get("content", "")
+    content_provided = "content" in payload
+    subject_provided = "subject" in payload
 
-    checksum = hashlib.md5(new_content.encode()).hexdigest()
+    requested_content = payload.get("content") if content_provided else None
+    requested_subject = payload.get("subject") if subject_provided else None
 
     connection = get_db_connection()
     try:
         with connection.cursor() as cursor:
             cursor.execute(
-                "SELECT content, status FROM messages WHERE id = %s AND server_id = %s",
+                "SELECT subject, content, status FROM messages WHERE id = %s AND server_id = %s",
                 (message_id, SERVER_ID),
             )
             existing_row = cursor.fetchone()
@@ -231,20 +322,27 @@ def edit_message(message_id):
         if existing_row is None:
             return jsonify({"error": "Message not found"}), 404
 
-        if existing_row[1] == "READ":
+        current_subject, current_content, current_status = existing_row
+
+        if current_status == "READ":
             return jsonify({"error": "Message already read and locked"}), 400
 
-        if (existing_row[0] or "") == new_content:
+        next_subject = (current_subject or "") if not subject_provided else ("" if requested_subject is None else str(requested_subject))
+        next_content = (current_content or "") if not content_provided else ("" if requested_content is None else str(requested_content))
+
+        if (current_subject or "") == next_subject and (current_content or "") == next_content:
             return jsonify({"message": "No changes to update", "id": message_id})
+
+        checksum = hashlib.md5(next_content.encode()).hexdigest()
 
         with connection.cursor() as cursor:
             cursor.execute(
                 """
                 UPDATE messages
-                SET content = %s, checksum = %s
+                SET subject = %s, content = %s, checksum = %s
                 WHERE id = %s AND status = 'UNREAD' AND server_id = %s
                 """,
-                (new_content, checksum, message_id, SERVER_ID),
+                (next_subject, next_content, checksum, message_id, SERVER_ID),
             )
         connection.commit()
     finally:
@@ -272,7 +370,7 @@ def delete_message(message_id):
 
         with connection.cursor() as cursor:
             cursor.execute(
-                "DELETE FROM messages WHERE id = %s AND server_id = %s",
+                "DELETE FROM messages WHERE id = %s AND server_id = %s AND status = 'UNREAD'",
                 (message_id, SERVER_ID),
             )
         connection.commit()

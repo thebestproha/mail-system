@@ -1,19 +1,26 @@
-from flask import Flask, jsonify, request, render_template, redirect, url_for, session
+from services.internal_mail import can_delete_internal_message, can_edit_internal_message
+from flask import Flask, jsonify, request, render_template, redirect, url_for, session, Response
 import requests
 import os
+import time
 import psycopg2
 import base64
+import ssl
+import mimetypes
 from psycopg2.pool import SimpleConnectionPool
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import timezone
 from email.mime.text import MIMEText
+from werkzeug.security import check_password_hash, generate_password_hash
 from google.auth.transport.requests import Request as GoogleAuthRequest
+from google.auth.exceptions import RefreshError
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from services.external_mail import (
     external_delete_message,
+    fetch_external_attachment_bytes,
     external_mark_spam,
     external_move_to_trash,
     external_toggle_star,
@@ -21,7 +28,9 @@ from services.external_mail import (
     send_gmail_message,
 )
 from services.internal_mail import (
+    delete_internal_message_for_user,
     empty_internal_trash,
+    fetch_internal_attachment,
     list_internal_messages,
     mark_internal_spam,
     move_internal_to_trash,
@@ -55,8 +64,16 @@ if not DATABASE_URL:
 GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "")
 GOOGLE_REDIRECT_URI = os.environ.get("GOOGLE_REDIRECT_URI", "")
+
+if GOOGLE_REDIRECT_URI.startswith("http://") and (
+    "127.0.0.1" in GOOGLE_REDIRECT_URI or "localhost" in GOOGLE_REDIRECT_URI
+):
+    os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"
+
 GOOGLE_SCOPES = [
+    "https://mail.google.com/",
     "https://www.googleapis.com/auth/gmail.send",
+    "https://www.googleapis.com/auth/gmail.modify",
     "https://www.googleapis.com/auth/gmail.readonly",
     "https://www.googleapis.com/auth/userinfo.email",
     "openid",
@@ -64,8 +81,6 @@ GOOGLE_SCOPES = [
 GOOGLE_OAUTH_CONFIGURED = all(
     [GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI]
 )
-
-gmail_service_cache = {}
 
 server_status = {
     "S1": "UP",
@@ -85,6 +100,8 @@ server_urls = {
 
 db_pool = None
 db_schema_initialized = False
+MAX_ATTACHMENT_BYTES = int(os.environ.get("MAX_ATTACHMENT_BYTES", str(10 * 1024 * 1024)))
+MAX_TOTAL_ATTACHMENTS_BYTES = int(os.environ.get("MAX_TOTAL_ATTACHMENTS_BYTES", str(25 * 1024 * 1024)))
 
 
 class DatabaseConnectionError(Exception):
@@ -98,6 +115,12 @@ def get_db_pool():
             minconn=1,
             maxconn=5,
             dsn=os.environ.get("DATABASE_URL"),
+            connect_timeout=int(os.environ.get("DB_CONNECT_TIMEOUT_SECONDS", "6")),
+            keepalives=1,
+            keepalives_idle=int(os.environ.get("DB_KEEPALIVE_IDLE_SECONDS", "30")),
+            keepalives_interval=int(os.environ.get("DB_KEEPALIVE_INTERVAL_SECONDS", "10")),
+            keepalives_count=int(os.environ.get("DB_KEEPALIVE_COUNT", "5")),
+            application_name="editmail-load-balancer",
         )
     return db_pool
 
@@ -119,6 +142,17 @@ def init_db() -> None:
     connection = pool.getconn()
     try:
         with connection.cursor() as cursor:
+            cursor.execute(
+            """
+            DO $$
+            BEGIN
+                CREATE TYPE message_delete_state AS ENUM ('ACTIVE', 'TRASHED', 'DELETED');
+            EXCEPTION
+                WHEN duplicate_object THEN NULL;
+            END
+            $$;
+            """
+        )
             cursor.execute(
             """
             CREATE TABLE IF NOT EXISTS users (
@@ -183,10 +217,82 @@ def init_db() -> None:
                 "ALTER TABLE messages ADD COLUMN IF NOT EXISTS is_spam BOOLEAN DEFAULT FALSE"
             )
             cursor.execute(
-                "ALTER TABLE messages ADD COLUMN IF NOT EXISTS deleted_for_sender BOOLEAN DEFAULT FALSE"
+                "ALTER TABLE messages ADD COLUMN IF NOT EXISTS deleted_for_sender message_delete_state DEFAULT 'ACTIVE'"
             )
             cursor.execute(
-                "ALTER TABLE messages ADD COLUMN IF NOT EXISTS deleted_for_receiver BOOLEAN DEFAULT FALSE"
+                "ALTER TABLE messages ADD COLUMN IF NOT EXISTS deleted_for_receiver message_delete_state DEFAULT 'ACTIVE'"
+            )
+            cursor.execute(
+            """
+            DO $$
+            BEGIN
+                IF EXISTS (
+                    SELECT 1
+                    FROM information_schema.columns
+                    WHERE table_name = 'messages'
+                      AND column_name = 'deleted_for_sender'
+                      AND data_type = 'boolean'
+                ) THEN
+                    ALTER TABLE messages ALTER COLUMN deleted_for_sender DROP DEFAULT;
+                    ALTER TABLE messages
+                    ALTER COLUMN deleted_for_sender
+                    TYPE message_delete_state
+                    USING (
+                        CASE
+                            WHEN COALESCE(deleted_for_sender, FALSE) = TRUE THEN 'DELETED'::message_delete_state
+                            WHEN COALESCE(hidden_for_sender, FALSE) = TRUE THEN 'TRASHED'::message_delete_state
+                            ELSE 'ACTIVE'::message_delete_state
+                        END
+                    );
+                END IF;
+            END
+            $$;
+            """
+        )
+            cursor.execute(
+            """
+            DO $$
+            BEGIN
+                IF EXISTS (
+                    SELECT 1
+                    FROM information_schema.columns
+                    WHERE table_name = 'messages'
+                      AND column_name = 'deleted_for_receiver'
+                      AND data_type = 'boolean'
+                ) THEN
+                    ALTER TABLE messages ALTER COLUMN deleted_for_receiver DROP DEFAULT;
+                    ALTER TABLE messages
+                    ALTER COLUMN deleted_for_receiver
+                    TYPE message_delete_state
+                    USING (
+                        CASE
+                            WHEN COALESCE(deleted_for_receiver, FALSE) = TRUE THEN 'DELETED'::message_delete_state
+                            WHEN COALESCE(hidden_for_receiver, FALSE) = TRUE THEN 'TRASHED'::message_delete_state
+                            ELSE 'ACTIVE'::message_delete_state
+                        END
+                    );
+                END IF;
+            END
+            $$;
+            """
+        )
+            cursor.execute(
+                "UPDATE messages SET deleted_for_sender = 'TRASHED' WHERE hidden_for_sender = TRUE AND COALESCE(deleted_for_sender::text, 'ACTIVE') = 'ACTIVE'"
+            )
+            cursor.execute(
+                "UPDATE messages SET deleted_for_receiver = 'TRASHED' WHERE hidden_for_receiver = TRUE AND COALESCE(deleted_for_receiver::text, 'ACTIVE') = 'ACTIVE'"
+            )
+            cursor.execute(
+                "ALTER TABLE messages ALTER COLUMN deleted_for_sender SET DEFAULT 'ACTIVE'"
+            )
+            cursor.execute(
+                "ALTER TABLE messages ALTER COLUMN deleted_for_receiver SET DEFAULT 'ACTIVE'"
+            )
+            cursor.execute(
+                "ALTER TABLE messages ALTER COLUMN deleted_for_sender SET NOT NULL"
+            )
+            cursor.execute(
+                "ALTER TABLE messages ALTER COLUMN deleted_for_receiver SET NOT NULL"
             )
             cursor.execute(
             """
@@ -199,6 +305,24 @@ def init_db() -> None:
             )
             """
         )
+            cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS message_attachments (
+            id BIGSERIAL PRIMARY KEY,
+            message_id BIGINT NOT NULL,
+            filename TEXT NOT NULL,
+            mime_type TEXT NOT NULL,
+            content_bytes BYTEA NOT NULL,
+            size INTEGER NOT NULL,
+            is_inline BOOLEAN DEFAULT FALSE,
+            content_id TEXT DEFAULT '',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_message_attachments_message_id ON message_attachments(message_id)"
+            )
         connection.commit()
         db_schema_initialized = True
     finally:
@@ -274,7 +398,16 @@ def _save_gmail_credentials(username: str, credentials: Credentials) -> None:
     if expiry is not None and expiry.tzinfo is not None:
         expiry = expiry.astimezone(timezone.utc).replace(tzinfo=None)
 
-    scopes_value = " ".join(credentials.scopes or GOOGLE_SCOPES)
+    existing_row = _get_gmail_token_row(username)
+    refresh_token_value = credentials.refresh_token
+    if not refresh_token_value and existing_row is not None:
+        refresh_token_value = existing_row.get("refresh_token")
+
+    scopes = credentials.scopes
+    if not scopes and existing_row is not None:
+        scopes = [scope for scope in str(existing_row.get("scopes") or "").split(" ") if scope]
+    scopes_value = " ".join(scopes or GOOGLE_SCOPES)
+
     connection = get_db_connection()
     try:
         with connection.cursor() as cursor:
@@ -291,7 +424,7 @@ def _save_gmail_credentials(username: str, credentials: Credentials) -> None:
                 (
                     username,
                     credentials.token,
-                    credentials.refresh_token,
+                    refresh_token_value,
                     scopes_value,
                     expiry,
                 ),
@@ -320,17 +453,18 @@ def _get_header(headers: list[dict], header_name: str) -> str:
     return ""
 
 
-def get_gmail_service(username: str):
-    cached = gmail_service_cache.get(username)
-    if cached:
-        cached_credentials = cached.get("credentials")
-        if cached_credentials is not None:
-            if cached_credentials.expired and cached_credentials.refresh_token:
-                cached_credentials.refresh(GoogleAuthRequest())
-                _save_gmail_credentials(username, cached_credentials)
-            if not cached_credentials.expired:
-                return cached.get("service")
+def _is_gmail_reauth_error(error: Exception) -> bool:
+    text = str(error).lower()
+    keywords = (
+        "invalid_grant",
+        "invalid credentials",
+        "token has been expired or revoked",
+        "reauth",
+    )
+    return any(keyword in text for keyword in keywords)
 
+
+def get_gmail_service(username: str):
     token_row = _get_gmail_token_row(username)
     if token_row is None:
         raise ValueError("Gmail account is not connected")
@@ -348,16 +482,27 @@ def get_gmail_service(username: str):
     if token_row.get("expiry") is not None:
         credentials.expiry = token_row["expiry"]
 
-    if credentials.expired and credentials.refresh_token:
-        credentials.refresh(GoogleAuthRequest())
-        _save_gmail_credentials(username, credentials)
+    try:
+        if (credentials.expired or not credentials.valid) and credentials.refresh_token:
+            credentials.refresh(GoogleAuthRequest())
+            _save_gmail_credentials(username, credentials)
 
-    if credentials.expired and not credentials.refresh_token:
-        raise ValueError("Stored Gmail token is expired and cannot be refreshed")
+        if credentials.expired and not credentials.refresh_token:
+            _delete_gmail_tokens(username)
+            raise ValueError("Gmail session expired. Reconnect Gmail and try again")
 
-    service = build("gmail", "v1", credentials=credentials, cache_discovery=False)
-    gmail_service_cache[username] = {"service": service, "credentials": credentials}
-    return service
+        service = build("gmail", "v1", credentials=credentials, cache_discovery=False)
+        return service
+    except RefreshError as error:
+        if _is_gmail_reauth_error(error):
+            _delete_gmail_tokens(username)
+            raise ValueError("Gmail authorization expired. Please reconnect Gmail") from error
+        raise
+    except Exception as error:
+        if _is_gmail_reauth_error(error):
+            _delete_gmail_tokens(username)
+            raise ValueError("Gmail authorization expired. Please reconnect Gmail") from error
+        raise
 
 
 def get_next_server():
@@ -387,7 +532,7 @@ def _ensure_internal_receiver_exists(receiver_username: str) -> None:
     pool = get_db_pool()
     try:
         with connection.cursor() as cursor:
-            cursor.execute("SELECT 1 FROM users WHERE username = %s", (receiver_username,))
+            cursor.execute("SELECT 1 FROM users WHERE LOWER(username) = LOWER(%s)", (receiver_username,))
             matched_receiver = cursor.fetchone()
         if matched_receiver is None:
             raise ValueError("Receiver does not exist")
@@ -395,18 +540,28 @@ def _ensure_internal_receiver_exists(receiver_username: str) -> None:
         pool.putconn(connection)
 
 
-def send_internal_distributed(sender: str, receiver: str, subject: str, body: str):
+def _is_password_hash(value: str) -> bool:
+    text = str(value or "")
+    return text.startswith("scrypt:") or text.startswith("pbkdf2:")
+
+
+def _password_matches(stored_password: str, provided_password: str) -> bool:
+    if _is_password_hash(stored_password):
+        try:
+            return bool(check_password_hash(stored_password, provided_password))
+        except ValueError:
+            return False
+    return stored_password == provided_password
+
+
+def send_internal_distributed(sender: str, receiver: str, subject: str, body: str, attachments=None):
     global last_routed
 
     receiver_username = normalize_internal_recipient(receiver)
     _ensure_internal_receiver_exists(receiver_username)
 
-    try:
-        server_id = get_next_server()
-    except ValueError as error:
-        raise RuntimeError(str(error)) from error
-
-    message_id = int.from_bytes(os.urandom(8), "big")
+    max_bigint = (1 << 63) - 1
+    message_id = int.from_bytes(os.urandom(8), "big") % max_bigint + 1
     payload = {
         "id": message_id,
         "sender": sender,
@@ -415,28 +570,115 @@ def send_internal_distributed(sender: str, receiver: str, subject: str, body: st
         "content": body,
     }
 
-    target_url = f"{server_urls[server_id]}/receive"
-    response = requests.post(
-        target_url,
-        json=payload,
-        timeout=REQUEST_TIMEOUT_SECONDS,
-    )
-    response.raise_for_status()
+    attempted_servers = set()
+    last_error_text = "No UP servers found"
 
-    last_routed = server_id
-    add_log(f"Message {message_id} routed to {server_id}")
+    for _ in range(len(server_urls)):
+        try:
+            server_id = get_next_server()
+        except ValueError as error:
+            raise RuntimeError(str(error)) from error
 
-    return {
-        "id": message_id,
-        "routed_to": server_id,
-        "server_response": response.json(),
-    }
+        if server_id in attempted_servers:
+            continue
+        attempted_servers.add(server_id)
+
+        target_url = f"{server_urls[server_id]}/receive"
+        try:
+            response = requests.post(
+                target_url,
+                json=payload,
+                timeout=REQUEST_TIMEOUT_SECONDS,
+            )
+
+            if response.status_code >= 500:
+                last_error_text = f"{server_id} temporary failure ({response.status_code})"
+                continue
+
+            response.raise_for_status()
+
+            last_routed = server_id
+            add_log(f"Message {message_id} routed to {server_id}")
+            return {
+                "id": message_id,
+                "routed_to": server_id,
+                "server_response": response.json(),
+            }
+        except requests.RequestException as error:
+            last_error_text = str(error)
+            continue
+
+    raise RuntimeError(f"Unable to route internal message: {last_error_text}")
 
 
-def send_external_via_gmail(sender: str, recipient_email: str, subject: str, body: str):
+def send_external_via_gmail(sender: str, recipient_email: str, subject: str, body: str, attachments=None):
     service = get_gmail_service(sender)
-    sent = send_gmail_message(service, recipient_email, subject, body)
+    sent = send_gmail_message(service, recipient_email, subject, body, attachments=attachments or [])
     return {"id": sent.get("id")}
+
+
+def _parse_send_attachments_from_request() -> list[dict]:
+    if not request.files:
+        return []
+
+    uploaded_files = request.files.getlist("attachments")
+    parsed_items = []
+    total_size = 0
+
+    for uploaded in uploaded_files:
+        if uploaded is None:
+            continue
+        filename = (uploaded.filename or "").strip()
+        if not filename:
+            continue
+
+        payload = uploaded.read() or b""
+        size = len(payload)
+        if size == 0:
+            continue
+        if size > MAX_ATTACHMENT_BYTES:
+            raise ValueError(f"Attachment too large: {filename}")
+
+        total_size += size
+        if total_size > MAX_TOTAL_ATTACHMENTS_BYTES:
+            raise ValueError("Total attachment size exceeded")
+
+        mime_type = (uploaded.mimetype or "").strip() or mimetypes.guess_type(filename)[0] or "application/octet-stream"
+        parsed_items.append(
+            {
+                "filename": filename,
+                "mime_type": mime_type,
+                "data": payload,
+                "size": size,
+                "is_inline": False,
+                "content_id": "",
+            }
+        )
+
+    return parsed_items
+
+
+def _store_internal_attachments(connection, message_id: int, attachments: list[dict]) -> None:
+    if not attachments:
+        return
+
+    with connection.cursor() as cursor:
+        for item in attachments:
+            cursor.execute(
+                """
+                INSERT INTO message_attachments (message_id, filename, mime_type, content_bytes, size, is_inline, content_id)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    message_id,
+                    item.get("filename") or "attachment",
+                    item.get("mime_type") or "application/octet-stream",
+                    psycopg2.Binary(item.get("data") or b""),
+                    int(item.get("size") or 0),
+                    bool(item.get("is_inline") or False),
+                    item.get("content_id") or "",
+                ),
+            )
 
 
 configure_route_handlers(send_internal_distributed, send_external_via_gmail)
@@ -580,6 +822,81 @@ def route_request():
     except requests.RequestException as error:
         return jsonify({"error": str(error)}), 502
 
+@app.post("/mail/internal/edit")
+def internal_edit():
+    payload = request.get_json(silent=True) or {}
+    username = (session.get("username") or payload.get("username") or get_current_username() or "").strip()
+    if not username:
+        return jsonify({"error": "Not authenticated"}), 401
+    message_id = payload.get("message_id")
+    subject = payload.get("subject")
+    body = payload.get("body")
+    if not message_id:
+        return jsonify({"error": "Missing message_id"}), 400
+    if subject is None and body is None:
+        return jsonify({"error": "Nothing to update"}), 400
+    if body is not None and subject is not None and not str(body).strip() and not str(subject).strip():
+        return jsonify({"error": "Missing fields"}), 400
+    conn = get_db_connection()
+    pool = get_db_pool()
+    try:
+        if not can_edit_internal_message(conn, message_id, username):
+            return jsonify({"error": "Edit not allowed"}), 403
+    finally:
+        pool.putconn(conn)
+
+    payload, status_code = _fanout_edit_message(
+        str(message_id),
+        None if body is None else str(body),
+        None if subject is None else str(subject),
+    )
+    if status_code == 200:
+        return jsonify({"success": True, **payload})
+    return jsonify({"error": payload.get("error", "Edit failed")}), status_code
+
+@app.post("/mail/internal/delete")
+def internal_delete():
+    payload = request.get_json(silent=True) or {}
+    username = (session.get("username") or payload.get("username") or get_current_username() or "").strip()
+    if not username:
+        return jsonify({"error": "Not authenticated"}), 401
+    message_id = payload.get("message_id")
+    permanent = bool(payload.get("permanent"))
+    hard_delete_unread = bool(payload.get("hard_delete_unread"))
+    if not message_id:
+        return jsonify({"error": "Missing fields"}), 400
+    conn = get_db_connection()
+    pool = get_db_pool()
+    try:
+        if hard_delete_unread:
+            if not can_delete_internal_message(conn, message_id, username):
+                return jsonify({"error": "Delete not allowed"}), 403
+            response_payload, status_code = _fanout_delete_message(str(message_id))
+            if status_code == 200:
+                return jsonify({"success": True, **response_payload})
+            return jsonify({"error": response_payload.get("error", "Delete failed")}), status_code
+
+        if permanent:
+            updated, purged = delete_internal_message_for_user(conn, username, str(message_id))
+            if updated == 0:
+                return jsonify({"error": "Delete not allowed"}), 403
+            conn.commit()
+            return jsonify(
+                {
+                    "success": True,
+                    "message": "Message deleted",
+                    "purged": purged,
+                }
+            )
+
+        updated = move_internal_to_trash(conn, username, str(message_id))
+        if updated == 0:
+            return jsonify({"error": "Delete not allowed"}), 403
+        conn.commit()
+        return jsonify({"success": True, "message": "Message moved to trash"})
+    finally:
+        pool.putconn(conn)
+
 
 @app.post("/register")
 def register_user():
@@ -590,12 +907,14 @@ def register_user():
     if not username or not password:
         return jsonify({"error": "username and password are required"}), 400
 
+    hashed_password = generate_password_hash(password)
+
     connection = get_db_connection()
     try:
         with connection.cursor() as cursor:
             cursor.execute(
                 "INSERT INTO users (username, password) VALUES (%s, %s)",
-                (username, password),
+                (username, hashed_password),
             )
         connection.commit()
     except psycopg2.IntegrityError:
@@ -616,21 +935,41 @@ def login_user():
     username = (payload.get("username") or "").strip()
     password = (payload.get("password") or "").strip()
 
+    if not username or not password:
+        if request.is_json:
+            return jsonify({"error": "username and password are required"}), 400
+        return redirect(url_for("login_page"))
+
     connection = get_db_connection()
     try:
         with connection.cursor() as cursor:
             cursor.execute(
-                "SELECT id FROM users WHERE username = %s AND password = %s",
-                (username, password),
+                "SELECT id, password FROM users WHERE username = %s",
+                (username,),
             )
-            matched = cursor.fetchone()
+            matched_row = cursor.fetchone()
+
+        if matched_row is None:
+            if request.is_json:
+                return jsonify({"error": "invalid credentials"}), 401
+            return redirect(url_for("login_page"))
+
+        matched_id, stored_password = matched_row
+        if not _password_matches(stored_password or "", password):
+            if request.is_json:
+                return jsonify({"error": "invalid credentials"}), 401
+            return redirect(url_for("login_page"))
+
+        # Upgrade legacy plaintext passwords to hashed form after successful login.
+        if not _is_password_hash(stored_password or ""):
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "UPDATE users SET password = %s WHERE id = %s",
+                    (generate_password_hash(password), matched_id),
+                )
+            connection.commit()
     finally:
         db_pool.putconn(connection)
-
-    if matched is None:
-        if request.is_json:
-            return jsonify({"error": "invalid credentials"}), 401
-        return redirect(url_for("login_page"))
 
     session["username"] = username
 
@@ -696,7 +1035,6 @@ def oauth2callback():
         flow.fetch_token(authorization_response=request.url)
         credentials = flow.credentials
         _save_gmail_credentials(username, credentials)
-        gmail_service_cache.pop(username, None)
         add_log(f"Gmail connected for {username}")
     except Exception as error:
         return jsonify({"error": f"OAuth callback failed: {error}"}), 400
@@ -711,7 +1049,6 @@ def gmail_logout():
         return jsonify({"error": "username is required"}), 400
 
     deleted_count = _delete_gmail_tokens(username)
-    gmail_service_cache.pop(username, None)
     if deleted_count:
         add_log(f"Gmail disconnected for {username}")
 
@@ -807,10 +1144,16 @@ def gmail_inbox():
 @app.post("/mail/send")
 def mail_send():
     payload = request.get_json(silent=True) or {}
-    username = (payload.get("username") or get_current_username() or "").strip()
-    recipient_email = (payload.get("to") or "").strip()
-    subject = (payload.get("subject") or "").strip()
-    body = payload.get("body") or ""
+    is_multipart = (request.content_type or "").lower().startswith("multipart/form-data")
+    form_data = request.form if is_multipart else None
+
+    username = (
+        ((form_data.get("username") if form_data is not None else "") or payload.get("username") or get_current_username() or "")
+        .strip()
+    )
+    recipient_email = (((form_data.get("to") if form_data is not None else "") or payload.get("to") or "")).strip()
+    subject = (((form_data.get("subject") if form_data is not None else "") or payload.get("subject") or "")).strip()
+    body = (form_data.get("body") if form_data is not None else payload.get("body")) or ""
 
     if not username:
         return jsonify({"error": "username is required"}), 400
@@ -818,12 +1161,34 @@ def mail_send():
         return jsonify({"error": "to, subject, and body are required"}), 400
 
     try:
+        attachments = _parse_send_attachments_from_request() if is_multipart else []
         result = route_message(
             recipient_email=recipient_email,
             subject=subject,
             body=body,
             current_user=username,
+            attachments=attachments,
         )
+
+        if isinstance(result, dict) and result.get("error"):
+            return jsonify(result), 400
+
+        if result.get("channel") == "internal" and attachments:
+            message_id_raw = result.get("id")
+            if message_id_raw is None:
+                return jsonify({"error": "internal send did not return message id"}), 502
+            message_id = int(message_id_raw)
+            connection = get_db_connection()
+            pool = get_db_pool()
+            try:
+                _store_internal_attachments(connection, message_id, attachments)
+                connection.commit()
+            finally:
+                pool.putconn(connection)
+
+        if attachments:
+            result = {**result, "attachments_count": len(attachments)}
+
         return jsonify(result)
     except ValueError as error:
         return jsonify({"error": str(error)}), 400
@@ -842,6 +1207,15 @@ def mail_list():
     username = (request.args.get("username") or get_current_username() or "").strip()
     source = (request.args.get("source") or "internal").strip().lower()
     folder = (request.args.get("folder") or "inbox").strip().lower()
+    page_token = (request.args.get("page_token") or "").strip() or None
+    limit_raw = (request.args.get("limit") or "20").strip()
+
+    try:
+        limit = int(limit_raw)
+    except ValueError:
+        limit = 20
+
+    limit = max(1, min(limit, 50))
 
     if not username:
         return jsonify({"error": "username is required", "messages": []}), 400
@@ -849,8 +1223,39 @@ def mail_list():
     if source == "external":
         try:
             service = get_gmail_service(username)
-            messages = list_external_messages(service, folder)
-            return jsonify({"source": source, "folder": folder, "messages": messages})
+            result = None
+            last_error = None
+            for attempt in range(3):
+                try:
+                    result = list_external_messages(
+                        service,
+                        folder,
+                        max_results=limit,
+                        page_token=page_token,
+                    )
+                    last_error = None
+                    break
+                except Exception as error:
+                    error_text = str(error)
+                    is_ssl_error = "SSL" in error_text or "DECRYPTION" in error_text or "WRONG_VERSION_NUMBER" in error_text
+                    if is_ssl_error and attempt < 2:
+                        time.sleep(0.7 * (attempt + 1))
+                        continue
+                    last_error = error
+                    break
+
+            if last_error is not None:
+                raise last_error
+
+            return jsonify(
+                {
+                    "source": source,
+                    "folder": folder,
+                    "messages": (result or {}).get("messages", []),
+                    "next_page_token": (result or {}).get("next_page_token"),
+                    "page_size": limit,
+                }
+            )
         except ValueError as error:
             return jsonify({"error": str(error), "messages": []}), 401
         except HttpError as error:
@@ -875,7 +1280,78 @@ def mail_list():
                     (username,),
                 )
             connection.commit()
-        return jsonify({"source": source, "folder": folder, "messages": messages})
+            messages = list_internal_messages(connection, username, folder)
+        return jsonify(
+            {
+                "source": source,
+                "folder": folder,
+                "messages": messages,
+                "next_page_token": None,
+                "page_size": len(messages),
+            }
+        )
+    finally:
+        pool.putconn(connection)
+
+
+@app.get("/mail/external/attachment")
+def mail_external_attachment():
+    username = (request.args.get("username") or get_current_username() or "").strip()
+    message_id = (request.args.get("message_id") or "").strip()
+    attachment_id = (request.args.get("attachment_id") or "").strip()
+    mime_type = (request.args.get("mime_type") or "application/octet-stream").strip()
+
+    if not username or not message_id or not attachment_id:
+        return jsonify({"error": "username, message_id and attachment_id are required"}), 400
+
+    try:
+        service = get_gmail_service(username)
+        content = fetch_external_attachment_bytes(service, message_id, attachment_id)
+        return Response(
+            content,
+            mimetype=mime_type,
+            headers={
+                "Cache-Control": "private, max-age=300",
+                "X-Content-Type-Options": "nosniff",
+            },
+        )
+    except ValueError as error:
+        return jsonify({"error": str(error)}), 401
+    except HttpError as error:
+        return jsonify({"error": f"Gmail API error: {error}"}), 502
+    except Exception as error:
+        return jsonify({"error": f"Failed to fetch attachment: {error}"}), 500
+
+
+@app.get("/mail/internal/attachment")
+def mail_internal_attachment():
+    username = (request.args.get("username") or get_current_username() or "").strip()
+    attachment_id_raw = (request.args.get("attachment_id") or "").strip()
+
+    if not username or not attachment_id_raw:
+        return jsonify({"error": "username and attachment_id are required"}), 400
+
+    try:
+        attachment_id = int(attachment_id_raw)
+    except ValueError:
+        return jsonify({"error": "attachment_id must be an integer"}), 400
+
+    connection = get_db_connection()
+    pool = get_db_pool()
+    try:
+        item = fetch_internal_attachment(connection, username, attachment_id)
+        if item is None:
+            return jsonify({"error": "Attachment not found"}), 404
+
+        return Response(
+            item.get("content_bytes") or b"",
+            mimetype=item.get("mime_type") or "application/octet-stream",
+            headers={
+                "Content-Disposition": f'inline; filename="{item.get("filename") or "attachment"}"',
+                "Cache-Control": "private, max-age=300",
+                "X-Content-Type-Options": "nosniff",
+            },
+        )
     finally:
         pool.putconn(connection)
 
@@ -897,8 +1373,10 @@ def mail_trash():
             return jsonify({"message": "Moved to Gmail Trash"})
         except ValueError as error:
             return jsonify({"error": str(error)}), 401
-        except HttpError as error:
-            return jsonify({"error": f"Gmail API error: {error}"}), 502
+        except (HttpError, ssl.SSLError) as error:
+            return jsonify({"error": f"Gmail temporarily unavailable: {error}"}), 502
+        except Exception as error:
+            return jsonify({"error": f"Failed to move to trash: {error}"}), 500
 
     connection = get_db_connection()
     pool = get_db_pool()
@@ -908,6 +1386,40 @@ def mail_trash():
         if updated == 0:
             return jsonify({"error": "Message not found"}), 404
         return jsonify({"message": "Moved to Internal Trash"})
+    finally:
+        pool.putconn(connection)
+
+
+@app.post("/mail/delete")
+def mail_delete():
+    payload = request.get_json(silent=True) or {}
+    username = (payload.get("username") or get_current_username() or "").strip()
+    source = (payload.get("source") or "internal").strip().lower()
+    message_id = str(payload.get("message_id") or "").strip()
+
+    if not username or not message_id:
+        return jsonify({"error": "username and message_id are required"}), 400
+
+    if source == "external":
+        try:
+            service = get_gmail_service(username)
+            external_delete_message(service, message_id)
+            return jsonify({"message": "Deleted permanently from Gmail"})
+        except ValueError as error:
+            return jsonify({"error": str(error)}), 401
+        except (HttpError, ssl.SSLError) as error:
+            return jsonify({"error": f"Gmail temporarily unavailable: {error}"}), 502
+        except Exception as error:
+            return jsonify({"error": f"Failed to delete message: {error}"}), 500
+
+    connection = get_db_connection()
+    pool = get_db_pool()
+    try:
+        updated, purged = delete_internal_message_for_user(connection, username, message_id)
+        if updated == 0:
+            return jsonify({"error": "Message not found"}), 404
+        connection.commit()
+        return jsonify({"message": "Deleted from Internal Trash", "purged": purged})
     finally:
         pool.putconn(connection)
 
@@ -923,12 +1435,29 @@ def empty_trash():
     if source == "external":
         try:
             service = get_gmail_service(username)
-            trashed = list_external_messages(service, "trash", max_results=100)
-            for message in trashed:
-                message_id = message.get("id")
-                if message_id:
-                    external_delete_message(service, message_id)
-            return jsonify({"message": "Gmail Trash emptied", "deleted": len(trashed)})
+            deleted_count = 0
+            page_token = None
+
+            while True:
+                trashed_result = list_external_messages(
+                    service,
+                    "trash",
+                    max_results=100,
+                    page_token=page_token,
+                )
+                trashed_messages = trashed_result.get("messages", [])
+
+                for message in trashed_messages:
+                    message_id = message.get("id")
+                    if message_id:
+                        external_delete_message(service, message_id)
+                        deleted_count += 1
+
+                page_token = trashed_result.get("next_page_token")
+                if not page_token:
+                    break
+
+            return jsonify({"message": "Gmail Trash emptied", "deleted": deleted_count})
         except ValueError as error:
             return jsonify({"error": str(error)}), 401
         except HttpError as error:
@@ -962,8 +1491,10 @@ def mail_star():
             return jsonify({"message": "External star updated"})
         except ValueError as error:
             return jsonify({"error": str(error)}), 401
-        except HttpError as error:
-            return jsonify({"error": f"Gmail API error: {error}"}), 502
+        except (HttpError, ssl.SSLError) as error:
+            return jsonify({"error": f"Gmail temporarily unavailable: {error}"}), 502
+        except Exception as error:
+            return jsonify({"error": f"Failed to update star: {error}"}), 500
 
     connection = get_db_connection()
     pool = get_db_pool()
@@ -1140,10 +1671,16 @@ def clear_inbox_history(username):
     return jsonify({"message": "Inbox history cleared", "deleted": hidden_count})
 
 
-@app.put("/edit-message/<message_id>")
-def edit_message(message_id):
-    payload = request.get_json(silent=True) or {}
-    content = payload.get("content", "")
+def _fanout_edit_message(
+    message_id: str,
+    content: str | None = None,
+    subject: str | None = None,
+) -> tuple[dict, int]:
+    edit_payload = {}
+    if content is not None:
+        edit_payload["content"] = content
+    if subject is not None:
+        edit_payload["subject"] = subject
 
     responses_by_server = {}
     with ThreadPoolExecutor(max_workers=3) as executor:
@@ -1151,7 +1688,7 @@ def edit_message(message_id):
             executor.submit(
                 requests.put,
                 f"{server_url}/edit/{message_id}",
-                json={"content": content},
+                json=edit_payload,
                 timeout=REPLICA_TIMEOUT_SECONDS,
             ): server_id
             for server_id, server_url in server_urls.items()
@@ -1170,16 +1707,15 @@ def edit_message(message_id):
 
         if response.status_code == 200:
             add_log(f"Message {message_id} edited on {server_id}")
-            return jsonify({"server": server_id, **response.json()})
+            return {"server": server_id, **response.json()}, 200
 
         if response.status_code == 400:
-            return jsonify(response.json()), 400
+            return response.json(), 400
 
-    return jsonify({"error": "Message not found"}), 404
+    return {"error": "Message not found"}, 404
 
 
-@app.delete("/delete-message/<message_id>")
-def delete_message(message_id):
+def _fanout_delete_message(message_id: str) -> tuple[dict, int]:
     responses_by_server = {}
     with ThreadPoolExecutor(max_workers=3) as executor:
         futures = {
@@ -1204,13 +1740,34 @@ def delete_message(message_id):
 
         if response.status_code == 200:
             add_log(f"Message {message_id} deleted on {server_id}")
-            return jsonify({"server": server_id, **response.json()})
+            return {"server": server_id, **response.json()}, 200
 
         if response.status_code == 400:
-            return jsonify(response.json()), 400
+            return response.json(), 400
 
-    return jsonify({"error": "Message not found"}), 404
+    return {"error": "Message not found"}, 404
+
+
+@app.put("/edit-message/<message_id>")
+def edit_message(message_id):
+    payload = request.get_json(silent=True) or {}
+    content = payload.get("content")
+    subject = payload.get("subject")
+    if content is None and subject is None:
+        return jsonify({"error": "Nothing to update"}), 400
+    response_payload, status_code = _fanout_edit_message(
+        message_id,
+        "" if content is None else str(content),
+        None if subject is None else str(subject),
+    )
+    return jsonify(response_payload), status_code
+
+
+@app.delete("/delete-message/<message_id>")
+def delete_message(message_id):
+    response_payload, status_code = _fanout_delete_message(message_id)
+    return jsonify(response_payload), status_code
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)), threaded=True)
