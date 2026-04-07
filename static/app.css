@@ -1178,3 +1178,41 @@ textarea:focus {
     grid-template-columns: 1fr;
   }
 }
+
+@media (max-width: 760px) {
+  .dashboard-actions {
+    width: 100%;
+    justify-content: stretch;
+  }
+
+  .demo-btn {
+    flex: 1;
+    text-align: center;
+  }
+
+  .topology-wrap {
+    min-height: 0;
+    display: grid;
+    gap: 10px;
+  }
+
+  .topology-svg,
+  .packet-layer {
+    display: none;
+  }
+
+  .node,
+  #user-node,
+  #lb-node,
+  #s1-node,
+  #s2-node,
+  #s3-node {
+    position: static;
+    width: 100%;
+    min-height: 0;
+  }
+
+  .node {
+    padding: 10px;
+  }
+}
