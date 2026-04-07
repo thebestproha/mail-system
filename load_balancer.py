@@ -705,6 +705,8 @@ def health():
 def login_page():
     session.pop("username", None)
     session.pop("oauth_state", None)
+    session.pop("oauth_code_verifier", None)
+    session.pop("oauth_pkce_state", None)
     return render_template("login.html")
 
 
@@ -1009,6 +1011,10 @@ def gmail_login():
         **flow.oauth_authorization_kwargs,
     )
     session["oauth_state"] = state
+    code_verifier = getattr(flow, "code_verifier", None)
+    if code_verifier:
+        session["oauth_code_verifier"] = code_verifier
+        session["oauth_pkce_state"] = state
     return redirect(authorization_url)
 
 
@@ -1032,12 +1038,20 @@ def oauth2callback():
 
     try:
         flow = _build_google_flow(state=state)
+        code_verifier = session.get("oauth_code_verifier", "")
+        verifier_state = session.get("oauth_pkce_state", "")
+        if code_verifier and (not verifier_state or verifier_state == state):
+            flow.code_verifier = code_verifier
         flow.fetch_token(authorization_response=request.url)
         credentials = flow.credentials
         _save_gmail_credentials(username, credentials)
         add_log(f"Gmail connected for {username}")
     except Exception as error:
         return jsonify({"error": f"OAuth callback failed: {error}"}), 400
+    finally:
+        session.pop("oauth_state", None)
+        session.pop("oauth_code_verifier", None)
+        session.pop("oauth_pkce_state", None)
 
     return redirect(url_for("user_home_page", username=username))
 
