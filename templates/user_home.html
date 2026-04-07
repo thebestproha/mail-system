@@ -1231,6 +1231,7 @@
 
     const FOLDERS = ["inbox", "sent", "starred", "trash", "junk"];
     const SOURCES = ["internal", "external"];
+    const PAGE_SIZE = 20;
     const REFRESH_INTERVAL_MS = 60 * 1000;
     let backgroundRefreshTimer = null;
     let backgroundRefreshInFlight = false;
@@ -1588,7 +1589,7 @@
     async function fetchFolderMessages(source, folder, { pageToken = "", retryCount = 0 } = {}) {
       const maxRetries = 2;
       try {
-        const response = await fetch(`/mail/list?username=${encodeURIComponent(username)}&source=${encodeURIComponent(source)}&folder=${encodeURIComponent(folder)}&limit=20${pageToken ? `&page_token=${encodeURIComponent(pageToken)}` : ""}`);
+        const response = await fetch(`/mail/list?username=${encodeURIComponent(username)}&source=${encodeURIComponent(source)}&folder=${encodeURIComponent(folder)}&limit=${PAGE_SIZE}${pageToken ? `&page_token=${encodeURIComponent(pageToken)}` : ""}`);
         const data = await response.json();
         if (!response.ok) {
           // Check if it's an SSL error that might be transient
@@ -1753,9 +1754,14 @@
       const currentFolderBefore = state.folder;
       const sourceToRefresh = state.source;
       const folderToRefresh = state.folder;
+      const cachedCurrentMessages = state.cache[sourceToRefresh][folderToRefresh] || [];
+      const shouldPreserveExpandedExternal =
+        sourceToRefresh === "external" && cachedCurrentMessages.length > PAGE_SIZE;
 
       try {
-        await refreshFolder(sourceToRefresh, folderToRefresh, { silent: true, append: false });
+        if (!shouldPreserveExpandedExternal) {
+          await refreshFolder(sourceToRefresh, folderToRefresh, { silent: true, append: false });
+        }
 
         if (renderCurrent) {
           const currentMessages = state.cache[state.source][state.folder] || [];
