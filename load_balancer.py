@@ -87,6 +87,8 @@ GOOGLE_OAUTH_CONFIGURED = all(
     [GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI]
 )
 
+ADMIN_DASHBOARD_PASSWORD = os.environ.get("ADMIN_DASHBOARD_PASSWORD", "admin")
+
 server_status = {
     "S1": "UP",
     "S2": "UP",
@@ -732,7 +734,40 @@ def user_home_page():
 
 @app.get("/dashboard")
 def dashboard():
+    if not session.get("admin_dashboard_access"):
+        return redirect(url_for("dashboard_access"))
     return render_template("dashboard.html")
+
+
+@app.get("/dashboard-access")
+def dashboard_access():
+    return render_template("dashboard_access.html")
+
+
+@app.post("/dashboard-auth")
+def dashboard_auth():
+    payload = request.get_json(silent=True) or request.form.to_dict() or {}
+    password = (payload.get("password") or "").strip()
+
+    if password != ADMIN_DASHBOARD_PASSWORD:
+        if request.is_json:
+            return jsonify({"error": "Invalid admin password"}), 401
+        return redirect(url_for("dashboard_access"))
+
+    session["admin_dashboard_access"] = True
+
+    if request.is_json:
+        return jsonify({"message": "Admin dashboard unlocked"})
+
+    return redirect(url_for("dashboard"))
+
+
+@app.post("/dashboard-logout")
+def dashboard_logout():
+    session.pop("admin_dashboard_access", None)
+    if request.is_json:
+        return jsonify({"message": "Admin dashboard locked"})
+    return redirect(url_for("login_page"))
 
 
 @app.get("/servers")
@@ -742,6 +777,9 @@ def get_servers():
 
 @app.get("/dashboard-data")
 def dashboard_data():
+    if not session.get("admin_dashboard_access"):
+        return jsonify({"error": "Admin password required"}), 403
+
     connection = get_db_connection()
     try:
         with connection.cursor() as cursor:

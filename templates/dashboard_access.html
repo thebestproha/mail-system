@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="manifest" href="/static/manifest.json">
+  <meta name="theme-color" content="#0f172a">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <title>Admin Dashboard</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
+</head>
+<body class="auth-page">
+  <div class="auth-shell">
+    <div class="auth-brand">
+      <img src="{{ url_for('static', filename='image.png') }}" class="app-logo" alt="EditMail Logo">
+      <h1>EditMail Admin</h1>
+    </div>
+
+    <main class="auth-card" aria-labelledby="admin-title">
+      <h2 id="admin-title">Open admin dashboard</h2>
+      <p class="auth-subtitle">Enter the admin password to view live server health, routing, and recovery status.</p>
+
+      <form method="post" action="/dashboard-auth">
+        <div class="form-group">
+          <label for="password">Admin password</label>
+          <input id="password" name="password" type="password" required autocomplete="current-password" placeholder="Enter admin password" />
+        </div>
+
+        <div class="auth-actions">
+          <button class="btn btn-primary" type="submit">Unlock dashboard</button>
+          <a class="btn btn-ghost" href="/login" style="display:inline-flex; align-items:center; justify-content:center;">Back to login</a>
+        </div>
+      </form>
+    </main>
+  </div>
+  <script>
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", () => {
+        navigator.serviceWorker.register("/static/sw.js");
+      });
+    }
+  </script>
+</body>
+</html>

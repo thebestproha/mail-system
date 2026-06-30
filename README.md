@@ -7,6 +7,9 @@ A mini distributed mail system with:
 - PostgreSQL storage (`users`, `messages`, `event_logs`)
 - HTML frontend templates in `templates/`
 
+Live Render app:
+- [EditMail on Render](https://mail-system-eude.onrender.com/login)
+
 Quick Start Guide
 -----------------
 
@@ -24,6 +27,7 @@ What to know before testing:
 - Once a receiver opens an internal message, the sender can no longer edit or delete that message.
 - The read view also shows a `Read at` timestamp when the message has been opened.
 - If both sender and receiver delete a message and it is removed from Trash on both sides, the row is purged from PostgreSQL too, so it does not stay anywhere in the system.
+- Open admin dashboard requires the password `admin`.
 
 Common questions
 - Why do messages sometimes appear late? Render free hosting can pause the app, so the first request may take a few seconds.
@@ -31,6 +35,8 @@ Common questions
 - Why does my Gmail stay connected across restarts? Gmail tokens are stored in PostgreSQL, so the link is not tied to a single process restart.
 - Why do I need the `@editmail.com` domain for internal mail? The router treats that domain as internal and sends it through the distributed replicas.
 - Why do edit and delete buttons disappear after a message is opened? The message becomes read-locked, which protects the sender/receiver flow and prevents post-read edits.
+- Why does the app recover when one server is down? The load balancer uses round robin across S1, S2, and S3 and skips servers marked down, so traffic automatically moves to the next healthy server.
+- Why is the system useful? It combines round-robin load balancing, failover recovery, read-lock protection, Gmail integration, attachment support, and PostgreSQL persistence.
 
 Useful browser actions
 - Refresh mailbox: use the Refresh button in the top bar.
@@ -40,7 +46,7 @@ Useful browser actions
 
 Live Deployment
 ---------------
-- **Production (stable):** [Advanced Mail System on Railway](https://mail-system-production.up.railway.app/login) - live deployment of the last stable commit. This free-tier deployment is expected to remain available till 16th March 2026.
+- **Production (stable):** [Advanced Mail System on Railway](https://mail-system-production.up.railway.app/login) - live deployment of the last stable commit.
 - **Render target:** deploy using the included `render.yaml` blueprint (recommended command: `gunicorn render_runner.render_app:app -c gunicorn.conf.py`).
 
 
@@ -72,6 +78,7 @@ How the System Works
 - `POST /register` creates users in `users` table.
 - `POST /login` validates credentials.
 - UI routes: `/login`, `/register`, `/user-home`, `/dashboard`.
+- Opening the admin dashboard asks for the password `admin` before showing the monitor.
 
 2) Message routing (core LB logic)
 - `POST /route` checks receiver exists.
@@ -82,6 +89,7 @@ How the System Works
 3) Failover and restore
 - `POST /fail/<server_id>` marks server `DOWN` and removes it from rotation.
 - `POST /restore/<server_id>` marks server `UP` and adds it back.
+- If a server is down, the next round-robin request automatically skips it and routes to the next healthy server.
 
 4) Message lifecycle/integrity
 - Server stores message with status `UNREAD` + MD5 checksum.
