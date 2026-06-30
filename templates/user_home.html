@@ -1955,6 +1955,7 @@
         <span><strong>From:</strong> ${escapeHtml(toDisplayText(message.sender || "-"))}</span>
         <span><strong>To:</strong> ${escapeHtml(toDisplayText(message.receiver || "-"))}</span>
         <span><strong>Date:</strong> ${escapeHtml(toDisplayText(message.timestamp_sent || "-"))}</span>
+        ${message.timestamp_read ? `<span><strong>Read at:</strong> ${escapeHtml(toDisplayText(message.timestamp_read))}</span>` : ""}
       `;
       content.className = "gmail-detail-content";
       const baseText = message.content || message.snippet || "";
@@ -2013,6 +2014,7 @@
         state.source === "internal" &&
         state.folder === "sent" &&
         (message.status || "").toUpperCase() === "UNREAD" &&
+        !message.timestamp_read &&
         String(message.sender || "").toLowerCase() === String(username || "").toLowerCase()
       ) {
         // Edit button

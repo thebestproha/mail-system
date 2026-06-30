@@ -2,29 +2,37 @@ def can_edit_internal_message(connection, message_id: str, username: str) -> boo
     with connection.cursor() as cursor:
         cursor.execute(
             """
-            SELECT sender, status FROM messages WHERE id = %s
+            SELECT sender, status, timestamp_read FROM messages WHERE id = %s
             """,
             (message_id,),
         )
         row = cursor.fetchone()
     if row is None:
         return False
-    sender, status = row
-    return str(sender or "").lower() == str(username or "").lower() and status == "UNREAD"
+    sender, status, timestamp_read = row
+    return (
+        str(sender or "").lower() == str(username or "").lower()
+        and status == "UNREAD"
+        and timestamp_read is None
+    )
 
 def can_delete_internal_message(connection, message_id: str, username: str) -> bool:
     with connection.cursor() as cursor:
         cursor.execute(
             """
-            SELECT sender, status FROM messages WHERE id = %s
+            SELECT sender, status, timestamp_read FROM messages WHERE id = %s
             """,
             (message_id,),
         )
         row = cursor.fetchone()
     if row is None:
         return False
-    sender, status = row
-    return str(sender or "").lower() == str(username or "").lower() and status == "UNREAD"
+    sender, status, timestamp_read = row
+    return (
+        str(sender or "").lower() == str(username or "").lower()
+        and status == "UNREAD"
+        and timestamp_read is None
+    )
 from typing import Any
 
 

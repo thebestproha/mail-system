@@ -314,7 +314,7 @@ def edit_message(message_id):
     try:
         with connection.cursor() as cursor:
             cursor.execute(
-                "SELECT subject, content, status FROM messages WHERE id = %s AND server_id = %s",
+                "SELECT subject, content, status, timestamp_read FROM messages WHERE id = %s AND server_id = %s",
                 (message_id, SERVER_ID),
             )
             existing_row = cursor.fetchone()
@@ -322,9 +322,9 @@ def edit_message(message_id):
         if existing_row is None:
             return jsonify({"error": "Message not found"}), 404
 
-        current_subject, current_content, current_status = existing_row
+        current_subject, current_content, current_status, timestamp_read = existing_row
 
-        if current_status == "READ":
+        if current_status == "READ" or timestamp_read is not None:
             return jsonify({"error": "Message already read and locked"}), 400
 
         next_subject = (current_subject or "") if not subject_provided else ("" if requested_subject is None else str(requested_subject))
@@ -352,7 +352,7 @@ def delete_message(message_id):
     try:
         with connection.cursor() as cursor:
             cursor.execute(
-                "SELECT status FROM messages WHERE id = %s AND server_id = %s",
+                "SELECT status, timestamp_read FROM messages WHERE id = %s AND server_id = %s",
                 (message_id, SERVER_ID),
             )
             existing_row = cursor.fetchone()
@@ -360,7 +360,7 @@ def delete_message(message_id):
         if existing_row is None:
             return jsonify({"error": "Message not found"}), 404
 
-        if existing_row[0] == "READ":
+        if existing_row[0] == "READ" or existing_row[1] is not None:
             return jsonify({"error": "Message already read and locked"}), 400
 
         with connection.cursor() as cursor:
