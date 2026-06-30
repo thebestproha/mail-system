@@ -38,10 +38,10 @@ from services.internal_mail import (
     toggle_internal_star,
 )
 from services.router import configure_route_handlers, route_message
+import hashlib
 
 
 app = Flask(__name__)
-app.secret_key = os.environ.get("FLASK_SECRET_KEY", "change-me-in-production")
 
 HOST = os.environ.get("HOST", "0.0.0.0")
 PORT = int(os.environ.get("PORT", 10000))
@@ -60,6 +60,10 @@ REPLICA_TIMEOUT_SECONDS = float(os.environ.get("REPLICA_TIMEOUT_SECONDS", "1"))
 DATABASE_URL = os.environ.get("DATABASE_URL")
 if not DATABASE_URL:
     raise RuntimeError("DATABASE_URL environment variable is required")
+
+app.secret_key = os.environ.get("FLASK_SECRET_KEY") or hashlib.sha256(
+    DATABASE_URL.encode("utf-8")
+).hexdigest()
 
 GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "")
