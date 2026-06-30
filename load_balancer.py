@@ -1066,6 +1066,9 @@ def gmail_logout():
     if not username:
         return jsonify({"error": "username is required"}), 400
 
+    if username.strip().lower() == "test":
+        return jsonify({"error": "Can't disconnect Gmail for this user"}), 403
+
     deleted_count = _delete_gmail_tokens(username)
     if deleted_count:
         add_log(f"Gmail disconnected for {username}")

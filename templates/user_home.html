@@ -1191,6 +1191,7 @@
   <script>
     const params = new URLSearchParams(window.location.search);
     const username = params.get("username") || "";
+    const protectedGmailUser = username.trim().toLowerCase() === "test";
     const userDisplayName = username || "Unknown";
     document.getElementById("current-user").textContent = userDisplayName;
     document.getElementById("sidebar-current-user").textContent = userDisplayName;
@@ -1485,11 +1486,15 @@
         if (state.gmailConnected) {
           connectBtn.style.display = "none";
           disconnectBtn.style.display = "inline-flex";
+          disconnectBtn.disabled = protectedGmailUser;
+          disconnectBtn.title = protectedGmailUser ? "Can't disconnect Gmail for this user" : "Disconnect Gmail";
           statusIndicator.classList.add("connected");
           statusText.textContent = data.email || "Gmail Connected";
         } else {
           connectBtn.style.display = "inline-flex";
           disconnectBtn.style.display = "none";
+          disconnectBtn.disabled = protectedGmailUser;
+          disconnectBtn.title = protectedGmailUser ? "Can't disconnect Gmail for this user" : "Disconnect Gmail";
           statusIndicator.classList.remove("connected");
           statusText.textContent = "Not Connected";
         }
@@ -1500,6 +1505,10 @@
 
     async function disconnectGmail() {
       const status = document.getElementById("list-status");
+      if (protectedGmailUser) {
+        setFeedback(status, "Can't disconnect Gmail for this user", "error");
+        return;
+      }
       if (!window.confirm("Disconnect Gmail for this user?")) return;
 
       try {
@@ -2346,6 +2355,12 @@
     });
 
     document.getElementById("disconnect-gmail").addEventListener("click", disconnectGmail);
+
+    if (protectedGmailUser) {
+      const disconnectBtn = document.getElementById("disconnect-gmail");
+      disconnectBtn.title = "Can't disconnect Gmail for this user";
+      disconnectBtn.disabled = true;
+    }
 
     preloadAllFolders();
     startBackgroundRefresh();
