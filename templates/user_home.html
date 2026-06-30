@@ -1262,6 +1262,39 @@
       return state.messages.find((m) => String(m.id) === String(state.selectedId)) || null;
     }
 
+    async function markOpenedMessageAsRead(message) {
+      if (!message || state.folder !== "inbox") return;
+      if (String(message.status || "").toUpperCase() === "READ" && message.timestamp_read) return;
+
+      try {
+        const response = await fetch("/mail/mark-read", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            source: state.source,
+            username,
+            message_id: String(message.id || ""),
+          }),
+        });
+        const data = await response.json();
+        if (!response.ok) return;
+
+        const readAt = new Date().toISOString();
+        const updatedMessage = {
+          ...message,
+          status: "READ",
+          timestamp_read: data.timestamp_read || readAt,
+        };
+        state.messages = state.messages.map((item) =>
+          String(item.id) === String(updatedMessage.id) ? updatedMessage : item
+        );
+        state.cache[state.source][state.folder] = state.messages;
+        renderFromCache();
+      } catch {
+        // Ignore read-mark failures; the next refresh will reconcile state.
+      }
+    }
+
     function normalizeText(value) {
       if (typeof value === "string") return value;
       if (value === null || value === undefined) return "";
@@ -1910,6 +1943,7 @@
           detailPanel.style.display = "block";
           document.querySelector(".gmail-mail-view").style.display = "none";
           renderDetail();
+          markOpenedMessageAsRead(message);
         });
         
         list.appendChild(item);

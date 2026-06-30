@@ -23,6 +23,7 @@ from services.external_mail import (
     fetch_external_attachment_bytes,
     external_mark_spam,
     external_move_to_trash,
+    external_mark_read,
     external_toggle_star,
     list_external_messages,
     send_gmail_message,
@@ -1390,6 +1391,47 @@ def mail_internal_attachment():
                 "X-Content-Type-Options": "nosniff",
             },
         )
+    finally:
+        pool.putconn(connection)
+
+
+@app.post("/mail/mark-read")
+def mail_mark_read():
+    payload = request.get_json(silent=True) or {}
+    source = (payload.get("source") or "").strip().lower()
+    username = (payload.get("username") or get_current_username() or "").strip()
+    message_id = (payload.get("message_id") or "").strip()
+
+    if not username or not message_id or source not in {"internal", "external"}:
+        return jsonify({"error": "source, username and message_id are required"}), 400
+
+    if source == "external":
+        try:
+            service = get_gmail_service(username)
+            external_mark_read(service, message_id)
+            return jsonify({"message": "External message marked read"})
+        except ValueError as error:
+            return jsonify({"error": str(error)}), 401
+        except HttpError as error:
+            return jsonify({"error": f"Gmail API error: {error}"}), 502
+
+    connection = get_db_connection()
+    pool = get_db_pool()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE messages
+                SET status = 'READ', timestamp_read = COALESCE(timestamp_read, CURRENT_TIMESTAMP)
+                WHERE id = %s
+                  AND LOWER(receiver) = LOWER(%s)
+                  AND status = 'UNREAD'
+                """,
+                (message_id, username),
+            )
+            updated_count = cursor.rowcount if cursor.rowcount is not None else 0
+        connection.commit()
+        return jsonify({"message": "Internal message marked read", "updated": updated_count})
     finally:
         pool.putconn(connection)
 

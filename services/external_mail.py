@@ -292,6 +292,14 @@ def external_mark_spam(service, message_id: str, is_spam: bool):
     return service.users().messages().modify(userId="me", id=message_id, body=body).execute()
 
 
+def external_mark_read(service, message_id: str):
+    body = {
+        "removeLabelIds": ["UNREAD"],
+        "addLabelIds": [],
+    }
+    return service.users().messages().modify(userId="me", id=message_id, body=body).execute()
+
+
 def fetch_external_attachment_bytes(service, message_id: str, attachment_id: str) -> bytes:
     payload = (
         service.users()
