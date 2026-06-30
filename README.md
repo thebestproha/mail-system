@@ -21,12 +21,16 @@ What to know before testing:
 - If you open the app and see `No messages`, click the Refresh button once and wait a little. Render free-tier instances can sleep or take time to wake up, and Gmail sync may also take a moment.
 - If you just logged in or switched devices, refresh the mailbox before assuming messages are missing.
 - The Gmail link for the `Test` demo account is protected so people do not accidentally disconnect it.
+- Once a receiver opens an internal message, the sender can no longer edit or delete that message.
+- The read view also shows a `Read at` timestamp when the message has been opened.
+- If both sender and receiver delete a message and it is removed from Trash on both sides, the row is purged from PostgreSQL too, so it does not stay anywhere in the system.
 
 Common questions
 - Why do messages sometimes appear late? Render free hosting can pause the app, so the first request may take a few seconds.
 - Why is the inbox empty after login? The mailbox often needs one manual refresh to fetch the latest Gmail and internal messages.
 - Why does my Gmail stay connected across restarts? Gmail tokens are stored in PostgreSQL, so the link is not tied to a single process restart.
 - Why do I need the `@editmail.com` domain for internal mail? The router treats that domain as internal and sends it through the distributed replicas.
+- Why do edit and delete buttons disappear after a message is opened? The message becomes read-locked, which protects the sender/receiver flow and prevents post-read edits.
 
 Useful browser actions
 - Refresh mailbox: use the Refresh button in the top bar.
@@ -81,8 +85,8 @@ How the System Works
 
 4) Message lifecycle/integrity
 - Server stores message with status `UNREAD` + MD5 checksum.
-- Inbox read marks unread messages as `READ`.
-- Edit/delete is blocked for already read messages.
+- Inbox read marks unread messages as `READ` and sets `timestamp_read`.
+- Edit/delete is blocked for already read messages, so once the receiver opens the message the sender cannot change or remove it.
 - `POST /corrupt/<message_id>` intentionally changes content.
 - Read detects checksum mismatch and returns corruption error.
 
@@ -93,6 +97,7 @@ How the System Works
 - `DELETE /delete-message/<message_id>` (fan-out to servers, first valid hit)
 - `DELETE /sent-history/<username>` (soft-hide for sender)
 - `DELETE /inbox-history/<username>` (soft-hide for receiver)
+- `DELETE /sent-history/<username>` and `DELETE /inbox-history/<username>` only hide the message from that user; the database row is removed only after both sides delete it and the trash entry is fully cleared.
 
 6) Dashboard
 - `GET /dashboard` renders UI.
