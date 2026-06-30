@@ -7,6 +7,33 @@ A mini distributed mail system with:
 - PostgreSQL storage (`users`, `messages`, `event_logs`)
 - HTML frontend templates in `templates/`
 
+Quick Start Guide
+-----------------
+
+Demo login for EditMail testing:
+- Username: `Test`
+- Password: `test`
+- Linked Gmail: `editmail.test@gmail.com`
+
+What to know before testing:
+- Use `@editmail.com` for internal mail inside the system, for example `Test@editmail.com`.
+- Use a real external address like `name@gmail.com`, `name@yahoo.com`, or any other valid domain when you want to send outside the system.
+- If you open the app and see `No messages`, click the Refresh button once and wait a little. Render free-tier instances can sleep or take time to wake up, and Gmail sync may also take a moment.
+- If you just logged in or switched devices, refresh the mailbox before assuming messages are missing.
+- The Gmail link for the `Test` demo account is protected so people do not accidentally disconnect it.
+
+Common questions
+- Why do messages sometimes appear late? Render free hosting can pause the app, so the first request may take a few seconds.
+- Why is the inbox empty after login? The mailbox often needs one manual refresh to fetch the latest Gmail and internal messages.
+- Why does my Gmail stay connected across restarts? Gmail tokens are stored in PostgreSQL, so the link is not tied to a single process restart.
+- Why do I need the `@editmail.com` domain for internal mail? The router treats that domain as internal and sends it through the distributed replicas.
+
+Useful browser actions
+- Refresh mailbox: use the Refresh button in the top bar.
+- Switch source: use the Internal / Gmail toggle.
+- Open message details: click a message row.
+- Disconnect Gmail: works for normal users, but is disabled for the `Test` demo account.
+
 Live Deployment
 ---------------
 - **Production (stable):** [Advanced Mail System on Railway](https://mail-system-production.up.railway.app/login) - live deployment of the last stable commit. This free-tier deployment is expected to remain available till 16th March 2026.

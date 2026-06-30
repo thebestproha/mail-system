@@ -146,21 +146,28 @@ def _collect_media_items(payload: dict | None) -> list[dict]:
 
     for part in _iter_payload_parts(payload):
         mime_type = str(part.get("mimeType") or "").lower()
-        if not (mime_type.startswith("image/") or mime_type.startswith("audio/") or mime_type.startswith("video/")):
-            continue
 
         body = part.get("body") or {}
         attachment_id = body.get("attachmentId")
         body_data = (body.get("data") or "").strip()
+        filename = (part.get("filename") or "").strip()
         size = int(body.get("size") or 0)
+        is_container = mime_type.startswith("multipart/")
         headers = part.get("headers", []) or []
         content_id = _normalize_content_id(_extract_header(headers, "Content-Id"))
         disposition = str(_extract_header(headers, "Content-Disposition") or "").lower()
+
+        if is_container:
+            continue
+
+        if not (filename or attachment_id or content_id or disposition.startswith("inline")):
+            continue
+
         is_inline = bool(content_id) or disposition.startswith("inline")
 
         item: dict = {
             "mime_type": mime_type,
-            "filename": part.get("filename") or "",
+            "filename": filename,
             "content_id": content_id,
             "is_inline": is_inline,
             "size": size,

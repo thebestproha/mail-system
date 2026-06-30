@@ -722,7 +722,11 @@ def register_page():
 @app.get("/user-home")
 def user_home_page():
     username = request.args.get("username", "")
-    return render_template("user_home.html", username=username)
+    return render_template(
+        "user_home.html",
+        username=username,
+        attachment_view_limit=MAX_ATTACHMENT_BYTES,
+    )
 
 
 @app.get("/dashboard")
@@ -1321,17 +1325,30 @@ def mail_external_attachment():
     message_id = (request.args.get("message_id") or "").strip()
     attachment_id = (request.args.get("attachment_id") or "").strip()
     mime_type = (request.args.get("mime_type") or "application/octet-stream").strip()
+    filename = (request.args.get("filename") or "attachment").strip() or "attachment"
+    size_raw = (request.args.get("size") or "").strip()
+
+    try:
+        size = int(size_raw) if size_raw else 0
+    except ValueError:
+        size = 0
 
     if not username or not message_id or not attachment_id:
         return jsonify({"error": "username, message_id and attachment_id are required"}), 400
 
+    if size and size > MAX_ATTACHMENT_BYTES:
+        return jsonify({"error": "Attachment exceeds our view limit"}), 413
+
     try:
         service = get_gmail_service(username)
         content = fetch_external_attachment_bytes(service, message_id, attachment_id)
+        if len(content) > MAX_ATTACHMENT_BYTES:
+            return jsonify({"error": "Attachment exceeds our view limit"}), 413
         return Response(
             content,
             mimetype=mime_type,
             headers={
+                "Content-Disposition": f'inline; filename="{filename}"',
                 "Cache-Control": "private, max-age=300",
                 "X-Content-Type-Options": "nosniff",
             },

@@ -1192,6 +1192,7 @@
     const params = new URLSearchParams(window.location.search);
     const username = params.get("username") || "";
     const protectedGmailUser = username.trim().toLowerCase() === "test";
+    const attachmentViewLimit = Number({{ attachment_view_limit | int }});
     const userDisplayName = username || "Unknown";
     document.getElementById("current-user").textContent = userDisplayName;
     document.getElementById("sidebar-current-user").textContent = userDisplayName;
@@ -1327,12 +1328,19 @@
         message_id: String(messageId || ""),
         attachment_id: String(mediaItem.attachment_id || ""),
         mime_type: String(mediaItem.mime_type || "application/octet-stream"),
+        filename: String(mediaItem.filename || "attachment"),
+        size: String(mediaItem.size || 0),
       });
       return `/mail/external/attachment?${query.toString()}`;
     }
 
+    function isAttachmentTooLarge(mediaItem) {
+      return Number(mediaItem?.size || 0) > attachmentViewLimit;
+    }
+
     function getMediaSourceUrl(message, mediaItem) {
       if (!mediaItem) return "";
+      if (isAttachmentTooLarge(mediaItem)) return "";
       if (mediaItem.data_url) return String(mediaItem.data_url);
       if (state.source === "internal" && mediaItem.attachment_id) {
         const query = new URLSearchParams({
@@ -1365,7 +1373,21 @@
         const item = cidMap.get(cid);
         if (!item) continue;
         const resolved = getMediaSourceUrl(message, item);
-        if (resolved) node.setAttribute("src", resolved);
+        if (resolved) {
+          node.setAttribute("src", resolved);
+        } else if (isAttachmentTooLarge(item)) {
+          const blocked = document.createElement("span");
+          blocked.style.display = "inline-block";
+          blocked.style.padding = "8px 10px";
+          blocked.style.margin = "6px 0";
+          blocked.style.border = "1px solid #f1b4b4";
+          blocked.style.borderRadius = "8px";
+          blocked.style.background = "#fce8e6";
+          blocked.style.color = "#b3261e";
+          blocked.style.fontSize = "12px";
+          blocked.textContent = "Inline media exceeds our view limit and was not loaded.";
+          node.replaceWith(blocked);
+        }
       }
     }
 
@@ -1394,25 +1416,41 @@
         const sourceUrl = getMediaSourceUrl(message, mediaItem);
         const mimeType = String(mediaItem?.mime_type || "");
         const fileName = String(mediaItem?.filename || "Attachment");
+        const isTooLarge = isAttachmentTooLarge(mediaItem);
 
-        if (mimeType.startsWith("image/") && sourceUrl) {
+        if (!isTooLarge && mimeType.startsWith("image/") && sourceUrl) {
           const image = document.createElement("img");
           image.src = sourceUrl;
           image.alt = fileName;
           card.appendChild(image);
-        } else if (mimeType.startsWith("video/") && sourceUrl) {
+        } else if (!isTooLarge && mimeType.startsWith("video/") && sourceUrl) {
           const video = document.createElement("video");
           video.src = sourceUrl;
           video.controls = true;
           card.appendChild(video);
+        } else if (!isTooLarge && mimeType.startsWith("audio/") && sourceUrl) {
+          const audio = document.createElement("audio");
+          audio.src = sourceUrl;
+          audio.controls = true;
+          card.appendChild(audio);
         }
 
         const link = document.createElement("a");
-        link.href = sourceUrl || "#";
+        link.href = isTooLarge ? "#" : (sourceUrl || "#");
         link.target = "_blank";
         link.rel = "noopener noreferrer";
         link.textContent = fileName;
-        if (!sourceUrl) {
+        if (isTooLarge) {
+          link.removeAttribute("href");
+          link.style.color = "#d93025";
+          link.style.cursor = "not-allowed";
+          const note = document.createElement("div");
+          note.style.fontSize = "12px";
+          note.style.color = "#d93025";
+          note.style.marginTop = "6px";
+          note.textContent = "Attachment exceeds our view limit and cannot be opened here.";
+          card.appendChild(note);
+        } else if (!sourceUrl) {
           link.removeAttribute("href");
           link.style.color = "#5f6368";
           link.style.cursor = "default";
